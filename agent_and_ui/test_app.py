@@ -228,13 +228,26 @@ class TestRunLiveEndpoint:
 
 
 class TestRootAndCORS:
-    def test_root_endpoint_returns_active_service_notice(self):
+    def test_root_endpoint_serves_frontend_or_service_notice(self):
         response = client.get("/")
         assert response.status_code == 200
-        data = response.json()
-        assert data["status"] == "ok"
-        assert data["service"] == "coinflip-agent-ui"
-        assert "/api/health" in data["endpoints"]
+        content_type = response.headers.get("content-type", "")
+        if "text/html" in content_type:
+            # Production static frontend is mounted and served
+            assert "<html" in response.text.lower()
+            assert "coinflip" in response.text.lower()
+        else:
+            # Fallback service notice
+            data = response.json()
+            assert data["status"] == "ok"
+            assert data["service"] == "coinflip-agent-ui"
+            assert "/api/health" in data["endpoints"]
+
+    def test_frontend_static_assets_accessible(self):
+        # Verify static asset or index is reachable
+        response = client.get("/")
+        assert response.status_code == 200
+        assert "<!doctype html>" in response.text.lower() or "<html" in response.text.lower()
 
     def test_cors_headers_present(self):
         response = client.get("/api/health", headers={"Origin": "http://localhost:5173"})

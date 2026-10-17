@@ -223,9 +223,17 @@ async def run_live(
         return hero
 
 
-# Mount /agent_and_ui/frontend at / if frontend/index.html exists
+# Resolve static frontend mount directory
+FRONTEND_PUBLIC_DIR = FRONTEND_DIR / ".output" / "public"
+
+static_dir: Optional[Path] = None
 if FRONTEND_INDEX.exists():
-    app.mount("/", StaticFiles(directory=str(FRONTEND_DIR), html=True), name="frontend")
+    static_dir = FRONTEND_DIR
+elif (FRONTEND_PUBLIC_DIR / "index.html").exists():
+    static_dir = FRONTEND_PUBLIC_DIR
+
+if static_dir is not None:
+    app.mount("/", StaticFiles(directory=str(static_dir), html=True), name="frontend")
 else:
 
     @app.get("/")
