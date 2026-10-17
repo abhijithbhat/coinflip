@@ -230,15 +230,25 @@ async def verify_dependency_injection_and_benchmarks() -> None:
         test_file = fixture_dir / "test_worker.py"
         test_file.write_text(BASE_FLAKY_CODE, encoding="utf-8")
 
-        # 1. Test fallback loading when agent_and_ui is empty
+        # 1. Test auto-detection and loading of Tejas's stats_provider and nemotron_agent
         orch = CoinflipOrchestrator(
             repo_dir=fixture_dir,
             test_target="test_worker.py",
             mode="local_isolated",
         )
-        assert hasattr(orch.stats_provider, "wilson_ci_95"), "Orchestrator stats_provider fallback missing"
+        assert hasattr(orch.stats_provider, "wilson_ci_95"), "Orchestrator stats_provider wilson_ci_95 missing"
         assert hasattr(orch.stats_provider, "upper_confidence_bound_95"), "Orchestrator stats_provider UCB missing"
-        print("  -> Fallback stats_provider cleanly loaded: sandbox_engine.math_utils")
+        if orch.stats_provider.__name__ == "agent_and_ui.stats_engine":
+            print("  -> Auto-detected and verified Tejas's stats_provider: agent_and_ui.stats_engine")
+        else:
+            print(f"  -> Stats provider loaded: {orch.stats_provider.__name__}")
+
+        if orch.agent_provider is not None:
+            assert hasattr(orch.agent_provider, "diagnose_and_propose_fix"), "Agent provider missing diagnose_and_propose_fix"
+            assert hasattr(orch.agent_provider, "summarize_failure_logs"), "Agent provider missing summarize_failure_logs"
+            print("  -> Auto-detected and verified Tejas's agent_provider: agent_and_ui.nemotron_agent")
+        else:
+            print("  -> Agent provider: None (fallback to built-in llm_bridge)")
 
         # 2. Test mock injected stats_provider
         class CustomStatsEngine:
@@ -323,9 +333,15 @@ def verify_strict_folder_boundaries() -> None:
         items = list(path.iterdir())
         item_names = [it.name for it in items if not it.name.startswith(".DS_Store")]
         print(f"Checking /{name}/ contents: {item_names}")
-        assert item_names == [".gitkeep"], (
-            f"VIOLATION: /{name}/ was modified or contains non-gitkeep files: {item_names}"
-        )
+        if name in ("benchmarks", "docs_and_demo"):
+            assert item_names == [".gitkeep"], (
+                f"VIOLATION: /{name}/ was modified or contains unexpected files: {item_names}"
+            )
+        elif name == "agent_and_ui":
+            assert "stats_engine.py" in item_names, "Tejas's stats_engine.py missing in agent_and_ui"
+            assert "nemotron_agent.py" in item_names, "Tejas's nemotron_agent.py missing in agent_and_ui"
+            assert "app.py" in item_names, "Tejas's app.py missing in agent_and_ui"
+            print("  -> Verified Tejas's core agent_and_ui files are present and intact")
 
     # Check git status for modified files outside our domain
     cmd = ["git", "status", "--porcelain"]
