@@ -9,6 +9,7 @@ Supports Dual-Mode Execution:
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 from pathlib import Path
@@ -39,7 +40,7 @@ class BackgroundCpuStressor:
     """Spawns background CPU busy-loop worker processes to saturate CPU cores during stress runs."""
 
     def __init__(self, num_workers: int | None = None) -> None:
-        self.num_workers = num_workers or max(4, (os.cpu_count() or 2) * 2)
+        self.num_workers = num_workers or max(2, min(4, os.cpu_count() or 2))
         self.processes: list[subprocess.Popen[bytes]] = []
 
     def __enter__(self) -> BackgroundCpuStressor:
@@ -187,12 +188,63 @@ class SandboxBatchRunner:
                 error_snippet=error_snippet,
             )
 
+    async def _run_worker_pool_chunk(
+        self,
+        temp_dir: Path,
+        perturbation: PerturbationType,
+        chunk_run_ids: list[int],
+    ) -> list[SingleRunResult]:
+        """Runs a chunk of test iterations inside a reusable worker process."""
+        workspace_root = Path(__file__).resolve().parent.parent
+        env = os.environ.copy()
+        existing_pypath = env.get("PYTHONPATH", "")
+        env["PYTHONPATH"] = f"{temp_dir}:{HOOKS_MODULE_PATH.parent}:{workspace_root}:{existing_pypath}"
+
+        cmd = [
+            sys.executable,
+            "-m",
+            "sandbox_engine._worker_pool",
+            "--temp-dir",
+            str(temp_dir),
+            "--test-target",
+            self.test_target,
+            "--perturbation",
+            perturbation.value,
+            "--run-ids",
+            ",".join(map(str, chunk_run_ids)),
+        ]
+
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            cwd=str(temp_dir),
+            env=env,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout_b, stderr_b = await proc.communicate()
+
+        try:
+            raw_text = stdout_b.decode(errors="replace").strip()
+            # If extra debug output preceded JSON, find the outermost array
+            json_start = raw_text.find("[")
+            json_end = raw_text.rfind("]")
+            if json_start != -1 and json_end != -1:
+                items = json.loads(raw_text[json_start : json_end + 1])
+                return [SingleRunResult.model_validate(item) for item in items]
+            raise ValueError(f"No JSON array found in worker output: {raw_text[:200]}")
+        except Exception as e:
+            logger.error("Failed to parse worker pool JSON output: %s", e)
+            return [
+                SingleRunResult(run_id=rid, passed=False, exit_code=1, duration_ms=0.0, error_snippet=str(e))
+                for rid in chunk_run_ids
+            ]
+
     async def _run_batch_local(
         self,
         perturbation: PerturbationType,
         num_runs: int,
     ) -> list[SingleRunResult]:
-        """Runs the batch using isolated local temporary directories and subprocesses."""
+        """Runs the batch using isolated local temporary directories and high-speed worker pools."""
         temp_dir = Path(tempfile.mkdtemp(prefix="coinflip_batch_"))
         try:
             # Copy repository contents into isolated workspace
@@ -203,13 +255,42 @@ class SandboxBatchRunner:
             if HOOKS_MODULE_PATH.exists():
                 shutil.copy2(HOOKS_MODULE_PATH, temp_dir / "_pytest_hooks.py")
 
-            # Local concurrency: bounded to avoid thread exhaustion
-            local_concurrency = min(self.max_concurrency, 16)
-            semaphore = asyncio.Semaphore(local_concurrency)
-
             ctx = build_perturbation_context(perturbation, run_id=0)
 
-            # Manage background CPU stressor if required by the perturbation condition
+            # For batches larger than 12 runs, use high-throughput worker pool
+            if num_runs > 12:
+                worker_count = min(self.max_concurrency, max(4, os.cpu_count() or 4))
+                # Partition run_ids across worker processes
+                chunks: list[list[int]] = [[] for _ in range(worker_count)]
+                for i in range(num_runs):
+                    chunks[i % worker_count].append(i)
+                active_chunks = [c for c in chunks if c]
+
+                if ctx.needs_external_cpu_stress:
+                    with BackgroundCpuStressor():
+                        tasks = [
+                            self._run_worker_pool_chunk(temp_dir, perturbation, chunk)
+                            for chunk in active_chunks
+                        ]
+                        chunk_results = await asyncio.gather(*tasks)
+                else:
+                    tasks = [
+                        self._run_worker_pool_chunk(temp_dir, perturbation, chunk)
+                        for chunk in active_chunks
+                    ]
+                    chunk_results = await asyncio.gather(*tasks)
+
+                # Flatten and sort results by run_id
+                all_results: list[SingleRunResult] = []
+                for cr in chunk_results:
+                    all_results.extend(cr)
+                all_results.sort(key=lambda r: r.run_id)
+                return all_results
+
+            # Small batches (<= 12 runs): standard individual subprocess execution
+            local_concurrency = min(self.max_concurrency, 4)
+            semaphore = asyncio.Semaphore(local_concurrency)
+
             if ctx.needs_external_cpu_stress:
                 with BackgroundCpuStressor():
                     tasks = [
@@ -251,11 +332,51 @@ class SandboxBatchRunner:
         project_id = os.getenv("NEBIUS_PROJECT_ID", "")
         auth = IAMAuth(token=api_key, project_id=project_id)
 
-        semaphore = asyncio.Semaphore(self.max_concurrency)
+        semaphore = asyncio.Semaphore(min(self.max_concurrency, 45))
         results: list[SingleRunResult] = []
 
         async with Contree(auth=auth) as client:
             image = await client.images.use(f"tag:{self.nebius_image_tag}")
+
+            if num_runs > 12:
+                worker_count = min(self.max_concurrency, 20)
+                chunks: list[list[int]] = [[] for _ in range(worker_count)]
+                for i in range(num_runs):
+                    chunks[i % worker_count].append(i)
+                active_chunks = [c for c in chunks if c]
+
+                async def _run_chunk_sandbox(chunk_run_ids: list[int]) -> list[SingleRunResult]:
+                    cmd = (
+                        f"python -m sandbox_engine._worker_pool "
+                        f"--temp-dir . "
+                        f"--test-target {self.test_target} "
+                        f"--perturbation {perturbation.value} "
+                        f"--run-ids {','.join(map(str, chunk_run_ids))}"
+                    )
+                    async with semaphore:
+                        run_inst = image.run(shell=cmd, disposable=True)
+                        res = await run_inst
+                        raw_text = ((res.stdout or "") + "\n" + (res.stderr or "")).strip()
+                        try:
+                            json_start = raw_text.find("[")
+                            json_end = raw_text.rfind("]")
+                            if json_start != -1 and json_end != -1:
+                                items = json.loads(raw_text[json_start : json_end + 1])
+                                return [SingleRunResult.model_validate(item) for item in items]
+                        except Exception as e:
+                            logger.warning("Failed to parse Nebius chunk worker JSON: %s", e)
+                        return [
+                            SingleRunResult(run_id=rid, passed=(res.exit_code == 0), exit_code=res.exit_code, duration_ms=0.0)
+                            for rid in chunk_run_ids
+                        ]
+
+                tasks = [_run_chunk_sandbox(chunk) for chunk in active_chunks]
+                chunk_results = await asyncio.gather(*tasks)
+                all_results: list[SingleRunResult] = []
+                for cr in chunk_results:
+                    all_results.extend(cr)
+                all_results.sort(key=lambda r: r.run_id)
+                return all_results
 
             async def _run_single_sandbox(run_id: int) -> SingleRunResult:
                 ctx = build_perturbation_context(perturbation, run_id=run_id)

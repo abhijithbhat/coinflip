@@ -18,6 +18,18 @@ from sandbox_engine.perturbations import (
     get_perturbation_label,
 )
 
+
+def __getattr__(name: str):
+    if name in ("verify_patch_in_sandbox", "verify_patch_in_sandbox_async"):
+        from sandbox_engine.mcp_verifier_tool import (
+            verify_patch_in_sandbox,
+            verify_patch_in_sandbox_async,
+        )
+        if name == "verify_patch_in_sandbox":
+            return verify_patch_in_sandbox
+        return verify_patch_in_sandbox_async
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
 __all__ = [
     "CoinflipOrchestrator",
     "NemotronBridge",
@@ -30,4 +42,6 @@ __all__ = [
     "get_perturbation_label",
     "PERTURBATION_LABELS",
     "PerturbationContext",
+    "verify_patch_in_sandbox",
+    "verify_patch_in_sandbox_async",
 ]

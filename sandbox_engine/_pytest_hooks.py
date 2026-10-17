@@ -79,21 +79,22 @@ def pytest_runtest_setup(item: Any) -> None:
 
     # 2. CPU Heavy Load: spawn background busy-loop threads to create thread/core contention
     if os.environ.get("COINFLIP_CPU_LOAD") == "1":
-        _BURNER_STOP_EVENT = threading.Event()
-        _BURNER_THREADS = []
+        if _BURNER_STOP_EVENT is None:
+            _BURNER_STOP_EVENT = threading.Event()
+            _BURNER_THREADS = []
 
-        def _burn(stop_evt: threading.Event) -> None:
-            # Busy-loop doing floating-point and memory hashing
-            x = 1.0001
-            while not stop_evt.is_set():
-                x = (x * 1.00001) % 1000.0
+            def _burn(stop_evt: threading.Event) -> None:
+                # Busy-loop doing floating-point and memory hashing
+                x = 1.0001
+                while not stop_evt.is_set():
+                    x = (x * 1.00001) % 1000.0
 
-        # Start workers to saturate available virtual execution slots
-        worker_count = max(4, (os.cpu_count() or 2) * 2)
-        for _ in range(worker_count):
-            t = threading.Thread(target=_burn, args=(_BURNER_STOP_EVENT,), daemon=True)
-            _BURNER_THREADS.append(t)
-            t.start()
+            # Start workers to saturate available virtual execution slots
+            worker_count = max(2, min(4, os.cpu_count() or 2))
+            for _ in range(worker_count):
+                t = threading.Thread(target=_burn, args=(_BURNER_STOP_EVENT,), daemon=True)
+                _BURNER_THREADS.append(t)
+                t.start()
 
 
 def pytest_runtest_teardown(item: Any) -> None:
@@ -102,7 +103,7 @@ def pytest_runtest_teardown(item: Any) -> None:
 
     if _BURNER_STOP_EVENT is not None:
         _BURNER_STOP_EVENT.set()
-        for t in _BURNER_THREADS:
-            t.join(timeout=0.1)
+        # Daemon threads will terminate promptly; do not block with sequential join timeouts
         _BURNER_THREADS.clear()
         _BURNER_STOP_EVENT = None
+

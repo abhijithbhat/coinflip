@@ -33,12 +33,22 @@ class Stage4PatchVerifier:
         test_target: str,
         max_concurrency: int = 45,
         mode: Literal["auto", "local_isolated", "nebius_sandbox"] = "auto",
+        stats_provider: Any = None,
     ) -> None:
         self.image_builder = image_builder
         self.base_snapshot_id = base_snapshot_id
         self.test_target = test_target
         self.max_concurrency = max_concurrency
         self.mode = mode
+        if stats_provider is not None:
+            self.stats_provider = stats_provider
+        else:
+            try:
+                import agent_and_ui.stats_engine as tejas_stats  # type: ignore
+                self.stats_provider = tejas_stats
+            except (ImportError, ModuleNotFoundError):
+                import sandbox_engine.math_utils as fallback_stats
+                self.stats_provider = fallback_stats
 
     async def verify_patch(
         self,
@@ -103,10 +113,10 @@ class Stage4PatchVerifier:
             )
 
             # 5. Compute conservative 95% upper confidence bounds
-            upper_bound_normal = upper_confidence_bound_95(
+            upper_bound_normal = self.stats_provider.upper_confidence_bound_95(
                 normal_result.failures, normal_result.total_runs
             )
-            upper_bound_stress = upper_confidence_bound_95(
+            upper_bound_stress = self.stats_provider.upper_confidence_bound_95(
                 stress_result.failures, stress_result.total_runs
             )
 

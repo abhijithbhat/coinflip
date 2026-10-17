@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 import json
 import logging
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 import uuid
 
 from sandbox_engine.batch_runner import SandboxBatchRunner
@@ -40,13 +40,15 @@ class CoinflipOrchestrator:
 
     def __init__(
         self,
-        repo_dir: Path | str,
-        test_target: str,
+        repo_dir: Path | str = ".",
+        test_target: str = "test_worker.py",
         project_name: str = "example-service",
-        max_concurrency: int = 4,
+        max_concurrency: int = 45,
         mode: Literal["auto", "local_isolated", "nebius_sandbox"] = "auto",
         output_trace_path: Path | str | None = None,
         llm_bridge: NemotronBridge | None = None,
+        stats_provider: Any = None,
+        agent_provider: Any = None,
     ) -> None:
         self.repo_dir = Path(repo_dir).resolve()
         self.test_target = test_target
@@ -58,7 +60,42 @@ class CoinflipOrchestrator:
             if output_trace_path
             else Path(__file__).resolve().parent.parent / "shared_contracts" / "sample_hero_trace.json"
         )
-        self.llm = llm_bridge or NemotronBridge()
+
+        # Injectable Stats Engine: dynamically load Tejas's module if available
+        if stats_provider is not None:
+            self.stats_provider = stats_provider
+        else:
+            try:
+                import agent_and_ui.stats_engine as tejas_stats  # type: ignore
+                self.stats_provider = tejas_stats
+                logger.info("Injected Tejas's stats_engine from agent_and_ui.stats_engine")
+            except (ImportError, ModuleNotFoundError):
+                import sandbox_engine.math_utils as fallback_stats
+                self.stats_provider = fallback_stats
+
+        # Injectable Nemotron Agent: dynamically load Tejas's module if available
+        if agent_provider is not None:
+            self.agent_provider = agent_provider
+        else:
+            try:
+                import agent_and_ui.nemotron_agent as tejas_agent  # type: ignore
+                self.agent_provider = tejas_agent
+                logger.info("Injected Tejas's nemotron_agent from agent_and_ui.nemotron_agent")
+            except (ImportError, ModuleNotFoundError):
+                self.agent_provider = None
+
+        # Resolve LLM bridge interface
+        if llm_bridge is not None:
+            self.llm = llm_bridge
+        elif self.agent_provider is not None and hasattr(self.agent_provider, "NemotronBridge"):
+            self.llm = self.agent_provider.NemotronBridge()
+        elif self.agent_provider is not None and hasattr(self.agent_provider, "create_bridge"):
+            self.llm = self.agent_provider.create_bridge()
+        elif self.agent_provider is not None and hasattr(self.agent_provider, "diagnose_and_propose_fix"):
+            self.llm = self.agent_provider
+        else:
+            self.llm = NemotronBridge()
+
         self.image_builder = SandboxImageBuilder(mode=self.mode)
 
     async def run(
@@ -161,6 +198,7 @@ class CoinflipOrchestrator:
             test_target=self.test_target,
             max_concurrency=self.max_concurrency,
             mode=self.mode,
+            stats_provider=self.stats_provider,
         )
 
         fix_attempts: list[CandidateFixEvaluation] = []
@@ -246,3 +284,85 @@ class CoinflipOrchestrator:
         logger.info("Saved validated CoinflipCertificateTrace to %s", self.output_trace_path)
 
         return trace
+
+    async def run_from_benchmark_folder(
+        self,
+        benchmark_dir: Path | str,
+        test_file: str,
+        project_name: str | None = None,
+        **kwargs: Any,
+    ) -> CoinflipCertificateTrace:
+        """Executes a Coinflip investigation on a target benchmark folder from Dulkif's /benchmarks/.
+
+        Args:
+            benchmark_dir: Path to the benchmark repository directory.
+            test_file: Target test file relative to benchmark_dir (e.g. 'tests/test_worker.py').
+            project_name: Optional override for the project name (defaults to folder name).
+            **kwargs: Extra parameters passed to self.run() (e.g. stage1_runs, target_limit).
+
+        Returns:
+            CoinflipCertificateTrace: Validated end-to-end certificate trace.
+        """
+        bench_path = Path(benchmark_dir).resolve()
+        if not bench_path.exists():
+            raise FileNotFoundError(f"Benchmark directory '{bench_path}' does not exist")
+
+        self.repo_dir = bench_path
+        self.test_target = test_file
+        self.project_name = project_name or bench_path.name
+        return await self.run(**kwargs)
+
+    @classmethod
+    async def run_benchmark(
+        cls,
+        benchmark_dir: Path | str,
+        test_file: str,
+        project_name: str | None = None,
+        max_concurrency: int = 4,
+        mode: Literal["auto", "local_isolated", "nebius_sandbox"] = "auto",
+        **kwargs: Any,
+    ) -> CoinflipCertificateTrace:
+        """Convenience factory method to execute a benchmark directory in one call."""
+        bench_path = Path(benchmark_dir).resolve()
+        name = project_name or bench_path.name
+        orchestrator = cls(
+            repo_dir=bench_path,
+            test_target=test_file,
+            project_name=name,
+            max_concurrency=max_concurrency,
+            mode=mode,
+        )
+        return await orchestrator.run(**kwargs)
+
+    async def run_full_pipeline(
+        self,
+        repo_dir: Path | str | None = None,
+        test_target: str | None = None,
+        project_name: str | None = None,
+        baseline_runs: int = 300,
+        experiment_runs: int = 300,
+        cert_runs: int = 1000,
+        target_limit: float = 0.005,
+        output_trace_path: Path | str | None = None,
+        demonstrate_rejection_catch: bool = True,
+        **kwargs: Any,
+    ) -> CoinflipCertificateTrace:
+        """Executes the complete 5-stage Coinflip pipeline with custom run numbers and trace persistence."""
+        if repo_dir is not None:
+            self.repo_dir = Path(repo_dir).resolve()
+        if test_target is not None:
+            self.test_target = test_target
+        if project_name is not None:
+            self.project_name = project_name
+        if output_trace_path is not None:
+            self.output_trace_path = Path(output_trace_path).resolve()
+
+        return await self.run(
+            stage1_runs=baseline_runs,
+            stage2_runs=experiment_runs,
+            stage4_cert_runs=cert_runs,
+            target_limit=target_limit,
+            demonstrate_rejection_catch=demonstrate_rejection_catch,
+            **kwargs,
+        )
+
