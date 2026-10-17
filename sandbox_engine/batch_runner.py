@@ -1,0 +1,355 @@
+"""Parallel batch execution engine for Coinflip.
+
+Supports Dual-Mode Execution:
+- 'local_isolated': Isolated temporary workspace with asyncio subprocess worker pools.
+- 'nebius_sandbox': MicroVM-isolated parallel container execution using contree-sdk.
+- 'auto': Automatically probes contree status and falls back cleanly to local_isolated.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+import tempfile
+import time
+from typing import Literal
+
+from sandbox_engine.math_utils import wilson_ci_95
+from sandbox_engine.perturbations import (
+    HOOKS_MODULE_PATH,
+    PerturbationContext,
+    build_perturbation_context,
+    get_perturbation_label,
+)
+from shared_contracts.schemas import (
+    BatchExperimentResult,
+    PerturbationType,
+    SingleRunResult,
+)
+
+logger = logging.getLogger("sandbox_engine.batch_runner")
+
+
+class BackgroundCpuStressor:
+    """Spawns background CPU busy-loop worker processes to saturate CPU cores during stress runs."""
+
+    def __init__(self, num_workers: int | None = None) -> None:
+        self.num_workers = num_workers or max(4, (os.cpu_count() or 2) * 2)
+        self.processes: list[subprocess.Popen[bytes]] = []
+
+    def __enter__(self) -> BackgroundCpuStressor:
+        burn_script = (
+            "import math\n"
+            "x = 1.0001\n"
+            "while True:\n"
+            "    x = (x * 1.00001) % 1000.0\n"
+        )
+        for _ in range(self.num_workers):
+            try:
+                p = subprocess.Popen(
+                    [sys.executable, "-c", burn_script],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+                self.processes.append(p)
+            except Exception as e:
+                logger.warning("Failed to spawn CPU burner process: %s", e)
+        return self
+
+    def __exit__(self, exc_type: object, exc_val: object, exc_tb: object) -> None:
+        for p in self.processes:
+            try:
+                p.terminate()
+                p.kill()
+            except Exception:
+                pass
+        self.processes.clear()
+
+
+class SandboxBatchRunner:
+    """Manages parallel test execution batches under controlled perturbation conditions."""
+
+    def __init__(
+        self,
+        repo_dir: Path | str,
+        test_target: str,
+        max_concurrency: int = 45,
+        mode: Literal["auto", "local_isolated", "nebius_sandbox"] = "auto",
+        nebius_image_tag: str = "ubuntu:24.04",
+    ) -> None:
+        self.repo_dir = Path(repo_dir).resolve()
+        self.test_target = test_target
+        self.max_concurrency = min(max_concurrency, 45)  # Enforce Nebius Beta 50-operation limit
+        self.mode = mode
+        self.nebius_image_tag = nebius_image_tag
+        self._cached_backend: str | None = None
+
+    async def probe_sandbox_availability(self) -> bool:
+        """Probes whether the Nebius Sandboxes service is active on the configured project."""
+        api_key = os.getenv("NEBIUS_API_KEY")
+        project_id = os.getenv("NEBIUS_PROJECT_ID")
+        if not api_key or not project_id:
+            return False
+
+        try:
+            from contree_sdk import Contree
+            from contree_sdk.auth import IAMAuth
+
+            auth = IAMAuth(token=api_key, project_id=project_id)
+            async with Contree(auth=auth) as client:
+                info = await client.get_token_info()
+                # Beta sandboxes require 'list' and operation permissions
+                return bool(info.permissions.get("list", False))
+        except Exception as e:
+            logger.debug("Nebius Sandboxes probe failed: %s", e)
+            return False
+
+    async def resolve_execution_backend(self) -> str:
+        """Determines the active execution backend ('nebius_sandbox' or 'local_isolated')."""
+        if self._cached_backend is not None:
+            return self._cached_backend
+
+        if self.mode == "nebius_sandbox":
+            self._cached_backend = "nebius_sandbox"
+        elif self.mode == "local_isolated":
+            self._cached_backend = "local_isolated"
+        else:  # "auto"
+            is_active = await self.probe_sandbox_availability()
+            if is_active:
+                logger.info("[AutoProbe] Nebius Sandboxes is active. Using 'nebius_sandbox' backend.")
+                self._cached_backend = "nebius_sandbox"
+            else:
+                logger.info(
+                    "[AutoProbe] Nebius Sandboxes inactive (awaiting Beta access). "
+                    "Falling back cleanly to 'local_isolated' backend."
+                )
+                self._cached_backend = "local_isolated"
+
+        return self._cached_backend
+
+    async def _run_single_local(
+        self,
+        run_id: int,
+        temp_dir: Path,
+        ctx: PerturbationContext,
+        semaphore: asyncio.Semaphore,
+    ) -> SingleRunResult:
+        """Executes a single test invocation in an isolated subprocess."""
+        async with semaphore:
+            env = os.environ.copy()
+            env.update(ctx.env_vars)
+            # Ensure isolated temp_dir and hooks module are in PYTHONPATH
+            existing_pypath = env.get("PYTHONPATH", "")
+            env["PYTHONPATH"] = f"{temp_dir}:{HOOKS_MODULE_PATH.parent}:{existing_pypath}"
+
+            cmd = [
+                sys.executable,
+                "-m",
+                "pytest",
+                self.test_target,
+                "-q",
+                "--tb=short",
+                "-p",
+                "_pytest_hooks",
+                *ctx.pytest_args,
+            ]
+
+            start_t = time.perf_counter()
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                cwd=str(temp_dir),
+                env=env,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout_b, stderr_b = await proc.communicate()
+            duration_ms = round((time.perf_counter() - start_t) * 1000.0, 2)
+
+            passed = (proc.returncode == 0)
+            error_snippet = None
+
+            if not passed:
+                output_text = (stdout_b.decode(errors="replace") + "\n" + stderr_b.decode(errors="replace")).strip()
+                lines = [line for line in output_text.splitlines() if line.strip()]
+                # Extract up to the last 15 lines of traceback / assertion failure
+                error_snippet = "\n".join(lines[-15:]) if lines else "Process exited with non-zero status"
+
+            return SingleRunResult(
+                run_id=run_id,
+                passed=passed,
+                exit_code=proc.returncode or 0,
+                duration_ms=duration_ms,
+                error_snippet=error_snippet,
+            )
+
+    async def _run_batch_local(
+        self,
+        perturbation: PerturbationType,
+        num_runs: int,
+    ) -> list[SingleRunResult]:
+        """Runs the batch using isolated local temporary directories and subprocesses."""
+        temp_dir = Path(tempfile.mkdtemp(prefix="coinflip_batch_"))
+        try:
+            # Copy repository contents into isolated workspace
+            if self.repo_dir.exists():
+                shutil.copytree(self.repo_dir, temp_dir, dirs_exist_ok=True)
+
+            # Copy pytest hooks directly into the workspace
+            if HOOKS_MODULE_PATH.exists():
+                shutil.copy2(HOOKS_MODULE_PATH, temp_dir / "_pytest_hooks.py")
+
+            # Local concurrency: bounded to avoid thread exhaustion
+            local_concurrency = min(self.max_concurrency, 16)
+            semaphore = asyncio.Semaphore(local_concurrency)
+
+            ctx = build_perturbation_context(perturbation, run_id=0)
+
+            # Manage background CPU stressor if required by the perturbation condition
+            if ctx.needs_external_cpu_stress:
+                with BackgroundCpuStressor():
+                    tasks = [
+                        self._run_single_local(
+                            run_id=i,
+                            temp_dir=temp_dir,
+                            ctx=build_perturbation_context(perturbation, run_id=i),
+                            semaphore=semaphore,
+                        )
+                        for i in range(num_runs)
+                    ]
+                    results = await asyncio.gather(*tasks)
+            else:
+                tasks = [
+                    self._run_single_local(
+                        run_id=i,
+                        temp_dir=temp_dir,
+                        ctx=build_perturbation_context(perturbation, run_id=i),
+                        semaphore=semaphore,
+                    )
+                    for i in range(num_runs)
+                ]
+                results = await asyncio.gather(*tasks)
+
+            return results
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+    async def _run_batch_nebius(
+        self,
+        perturbation: PerturbationType,
+        num_runs: int,
+    ) -> list[SingleRunResult]:
+        """Runs the batch inside Nebius Sandboxes microVMs via contree-sdk."""
+        from contree_sdk import Contree
+        from contree_sdk.auth import IAMAuth
+
+        api_key = os.getenv("NEBIUS_API_KEY", "")
+        project_id = os.getenv("NEBIUS_PROJECT_ID", "")
+        auth = IAMAuth(token=api_key, project_id=project_id)
+
+        semaphore = asyncio.Semaphore(self.max_concurrency)
+        results: list[SingleRunResult] = []
+
+        async with Contree(auth=auth) as client:
+            image = await client.images.use(f"tag:{self.nebius_image_tag}")
+
+            async def _run_single_sandbox(run_id: int) -> SingleRunResult:
+                ctx = build_perturbation_context(perturbation, run_id=run_id)
+                cmd = f"pytest {self.test_target} -q --tb=short -p _pytest_hooks"
+
+                async with semaphore:
+                    start_t = time.perf_counter()
+                    run_inst = image.run(
+                        shell=cmd,
+                        env=ctx.env_vars,
+                        disposable=True,
+                    )
+                    res = await run_inst
+                    duration_ms = round((time.perf_counter() - start_t) * 1000.0, 2)
+                    passed = (res.exit_code == 0)
+                    error_snippet = None
+                    if not passed:
+                        out = (res.stdout or "") + "\n" + (res.stderr or "")
+                        error_snippet = "\n".join(out.strip().splitlines()[-15:])
+
+                    return SingleRunResult(
+                        run_id=run_id,
+                        passed=passed,
+                        exit_code=res.exit_code,
+                        duration_ms=duration_ms,
+                        error_snippet=error_snippet,
+                    )
+
+            tasks = [_run_single_sandbox(i) for i in range(num_runs)]
+            results = list(await asyncio.gather(*tasks))
+
+        return results
+
+    async def run_batch(
+        self,
+        perturbation: PerturbationType,
+        num_runs: int,
+    ) -> BatchExperimentResult:
+        """Executes a full experiment batch under the specified perturbation condition.
+
+        Args:
+            perturbation: The PerturbationType condition to test.
+            num_runs: Total number of iterations to execute.
+
+        Returns:
+            BatchExperimentResult: Complete statistical outcome with Wilson confidence intervals.
+        """
+        backend = await self.resolve_execution_backend()
+        label = get_perturbation_label(perturbation)
+
+        if backend == "nebius_sandbox":
+            try:
+                run_results = await self._run_batch_nebius(perturbation, num_runs)
+            except Exception as e:
+                logger.warning(
+                    "Nebius Sandbox execution encountered error: %s. Falling back to local_isolated.",
+                    e,
+                )
+                backend = "local_isolated"
+                run_results = await self._run_batch_local(perturbation, num_runs)
+        else:
+            run_results = await self._run_batch_local(perturbation, num_runs)
+
+        # Aggregate metrics
+        passes = sum(1 for r in run_results if r.passed)
+        failures = len(run_results) - passes
+        total_runs = len(run_results)
+        failure_rate = round(failures / total_runs, 4) if total_runs > 0 else 0.0
+
+        ci_lower, ci_upper = wilson_ci_95(failures, total_runs)
+
+        # Chronological pass/fail dots for UI dot-matrix
+        run_dots = [r.passed for r in run_results]
+
+        # Extract unique deduplicated failure snippets (up to 10)
+        seen_logs: set[str] = set()
+        sample_failure_logs: list[str] = []
+        for r in run_results:
+            if r.error_snippet and r.error_snippet not in seen_logs:
+                seen_logs.add(r.error_snippet)
+                sample_failure_logs.append(r.error_snippet)
+                if len(sample_failure_logs) >= 10:
+                    break
+
+        return BatchExperimentResult(
+            perturbation=perturbation,
+            label=label,
+            total_runs=total_runs,
+            failures=failures,
+            passes=passes,
+            failure_rate=failure_rate,
+            ci_95_lower=ci_lower,
+            ci_95_upper=ci_upper,
+            execution_backend=backend,
+            sample_failure_logs=sample_failure_logs,
+            run_dots=run_dots,
+        )
