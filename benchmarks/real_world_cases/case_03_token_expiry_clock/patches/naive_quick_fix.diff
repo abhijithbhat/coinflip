@@ -1,0 +1,5 @@
+--- a/test_token_ttl.py
++++ b/test_token_ttl.py
+@@ -3,3 +3,3 @@
+-    cache = FileCacheTTL(ttl_seconds=300)
++    cache = FileCacheTTL(ttl_seconds=4000)

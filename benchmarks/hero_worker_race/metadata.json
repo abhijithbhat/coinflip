@@ -1,0 +1,39 @@
+{
+  "suite_name": "hero_worker_race",
+  "suite_title": "Hero Demo: Background Worker Thread Race Condition",
+  "description": "Flagship benchmark demonstrating a thread scheduling race condition in a background job processor. The test uses a fixed time.sleep() instead of proper event synchronization, causing intermittent failures that spike sharply under CPU contention.",
+  "test_file": "test_worker.py",
+  "test_identifier": "test_worker.py::test_job_finishes",
+  "source_files": [
+    "worker_service.py",
+    "test_worker.py",
+    "conftest.py"
+  ],
+  "expected_triggering_condition": "cpu_heavy_load",
+  "root_cause": "The test asserts worker.is_completed after a fixed time.sleep(0.009) instead of using the worker's threading.Event-based wait_for_completion() method. Under CPU contention from background burner threads, the worker thread is starved of scheduling slots and takes 50-200ms+ instead of ~8-15ms, causing the assertion to fire before the worker finishes.",
+  "expected_behavior": {
+    "baseline": "Low failure rate (~2-8%). The worker usually finishes 8 SHA-256 iterations in ~8-15ms, beating the 9ms sleep on a quiet machine.",
+    "shuffle_order": "Similar to baseline. Test execution order does not affect this single-test race.",
+    "seed_change": "Similar to baseline. Random seeds do not affect threading behavior.",
+    "clock_shift": "Similar to baseline. Clock skew shifts time.time() but not time.sleep() duration.",
+    "network_cut": "Similar to baseline. No network operations in this test.",
+    "cpu_half_cores": "Moderate increase (~10-25%). Fewer cores increases thread scheduling contention.",
+    "cpu_heavy_load": "SHARP SPIKE (>25-60%). Background CPU burner threads compete for GIL and OS scheduling, starving the worker thread."
+  },
+  "patches": {
+    "naive_quick_fix": {
+      "file_py": "patches/naive_quick_fix.py",
+      "file_diff": "patches/naive_quick_fix.diff",
+      "description": "Increases time.sleep from 0.009s to 0.050s. Passes baseline (0% failures) but still fails under cpu_heavy_load (>25% failure rate) because it's still a fixed-sleep race condition.",
+      "expected_verdict": "REJECTED"
+    },
+    "certified_real_fix": {
+      "file_py": "patches/certified_real_fix.py",
+      "file_diff": "patches/certified_real_fix.diff",
+      "description": "Replaces time.sleep with worker.wait_for_completion(timeout=5.0) using threading.Event.wait(). Achieves 0% failures on BOTH baseline AND cpu_heavy_load because the OS kernel handles thread wake-up.",
+      "expected_verdict": "CERTIFIED"
+    }
+  },
+  "requires_packages": [],
+  "pdf_reference_pages": [7, 8, 9, 12]
+}
