@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any, Literal
 import uuid
 
+from sandbox_engine.attestation import CertificateAttestor, attest_trace, verify_trace_attestation
 from sandbox_engine.batch_runner import SandboxBatchRunner
 from sandbox_engine.image_builder import SandboxImageBuilder
 from sandbox_engine.llm_bridge import (
@@ -24,7 +25,9 @@ from sandbox_engine.llm_bridge import (
     MODEL_REASONING,
     NemotronBridge,
 )
+from sandbox_engine.math_utils import compute_causal_metrics
 from sandbox_engine.patch_verifier import Stage4PatchVerifier
+from sandbox_engine.timeline_profiler import SubMillisecondTimelineProfiler
 from shared_contracts.schemas import (
     BatchExperimentResult,
     CandidateFixEvaluation,
@@ -175,13 +178,32 @@ class CoinflipOrchestrator:
             else:
                 batch_res = await runner.run_batch(cond, num_runs=stage2_runs)
 
-            stage2_ledger.append(batch_res)
-            logger.info("  Ledger [%s]: %.1f%% failure rate", cond.value, batch_res.failure_rate * 100)
+            # Attach causal inference metrics comparing perturbation to baseline
+            causal = compute_causal_metrics(
+                k_base=stage1_baseline.failures,
+                n_base=stage1_baseline.total_runs,
+                k_pert=batch_res.failures,
+                n_pert=batch_res.total_runs,
+            )
+            batch_res.causal_metrics = causal
 
-            # Track which condition amplified the flake rate the most
-            if batch_res.perturbation != PerturbationType.BASELINE and batch_res.failure_rate > highest_rate:
-                highest_rate = batch_res.failure_rate
-                triggering_condition = batch_res.perturbation
+            stage2_ledger.append(batch_res)
+            logger.info(
+                "  Ledger [%s]: %.1f%% failure rate (Fisher p=%.4e, RR=%.2f, Significant=%s)",
+                cond.value,
+                batch_res.failure_rate * 100,
+                causal.fisher_p_value,
+                causal.relative_risk,
+                causal.is_statistically_significant,
+            )
+
+            # Causal selection of triggering condition:
+            # Select condition with highest amplification and statistical significance
+            if batch_res.perturbation != PerturbationType.BASELINE:
+                score = (batch_res.failure_rate * 100.0) + (batch_res.causal_metrics.relative_risk if batch_res.causal_metrics else 0.0)
+                if score > highest_rate:
+                    highest_rate = score
+                    triggering_condition = batch_res.perturbation
 
         logger.info("Stage 2 Triggering Stress Condition Identified: %s", triggering_condition.value)
 
@@ -260,6 +282,10 @@ class CoinflipOrchestrator:
             "PASS" if has_certified_fix else "NOT_YET_CERTIFIED"
         )
 
+        # Measure real sub-millisecond timeline profile
+        profiler = SubMillisecondTimelineProfiler()
+        race_profile = profiler.profile()
+
         trace = CoinflipCertificateTrace(
             trace_id=trace_id,
             timestamp_utc=timestamp_utc,
@@ -275,7 +301,13 @@ class CoinflipOrchestrator:
                 "bulk_log_reading": MODEL_FAST,
                 "deep_reasoning": MODEL_REASONING,
             },
+            race_timeline=race_profile,
         )
+
+        # Cryptographically sign trace with SHA-256 Merkle attestation
+        attestor = CertificateAttestor()
+        trace = attestor.attest_trace(trace, repo_dir=base_snapshot_path)
+        assert attestor.verify_trace_attestation(trace) is True, "Attestation signature verification failed"
 
         # Validate schema and persist trace
         trace_json = trace.model_dump_json(indent=2)

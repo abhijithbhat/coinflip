@@ -18,10 +18,12 @@ if str(workspace_root) not in sys.path:
     sys.path.insert(0, str(workspace_root))
 
 from shared_contracts.schemas import (
+    ASTGatekeeperReport,
     BatchExperimentResult,
     CandidateFixEvaluation,
     CoinflipCertificateTrace,
     PerturbationType,
+    ThreadRaceTimelineProfile,
 )
 
 
@@ -202,6 +204,22 @@ def create_reference_trace() -> CoinflipCertificateTrace:
         rejection_reason=(
             "Stress test failure rate upper bound (7.80%) exceeds target threshold of 0.50% under CPU heavy load."
         ),
+        ast_audit=ASTGatekeeperReport(
+            passed_gatekeeper=True,
+            status_code="WARN_SLEEP_INFLATION",
+            original_assert_count=1,
+            patched_assert_count=1,
+            assertions_preserved=True,
+            no_skip_decorators=True,
+            no_bare_exception_swallowing=True,
+            sleep_inflation_detected=True,
+            synchronization_primitives_detected=[],
+            summary=(
+                "Warning: Sleep Inflation Detected. Candidate patch increased sleep duration from "
+                "1.0000s to 2.0000s without adding deterministic synchronization. "
+                "Allowed to proceed to Stage 4 Dual-Condition Gate for empirical stress verification."
+            ),
+        ),
     )
 
     # Fix Attempt 2: The Coinflip certified fix (event synchronization)
@@ -256,9 +274,21 @@ def create_reference_trace() -> CoinflipCertificateTrace:
         target_limit=0.005,
         verdict="CERTIFIED",
         rejection_reason=None,
+        ast_audit=ASTGatekeeperReport(
+            passed_gatekeeper=True,
+            status_code="VERIFIED_CLEAN",
+            original_assert_count=1,
+            patched_assert_count=1,
+            assertions_preserved=True,
+            no_skip_decorators=True,
+            no_bare_exception_swallowing=True,
+            sleep_inflation_detected=False,
+            synchronization_primitives_detected=["wait_for_completion"],
+            summary="Verified Clean: All assertions preserved (1/1), no suppression detected, and deterministic synchronization verified [wait_for_completion].",
+        ),
     )
 
-    return CoinflipCertificateTrace(
+    trace = CoinflipCertificateTrace(
         trace_id="reference-hero-trace-contract-v1-initial-schema-fixture",
         timestamp_utc="2026-10-16T12:00:00Z",
         is_recorded_replay=True,
@@ -273,7 +303,24 @@ def create_reference_trace() -> CoinflipCertificateTrace:
             "bulk_log_reading": "nvidia/Nemotron-3_5-Lightning",
             "deep_reasoning": "nvidia/Nemotron-3-Ultra-550b-a55b",
         },
+        race_timeline=ThreadRaceTimelineProfile(
+            measured_quiet_worker_ms=11.42,
+            measured_quiet_assert_ms=20.00,
+            quiet_margin_ms=8.58,
+            measured_stress_worker_ms=26.40,
+            measured_stress_assert_ms=20.00,
+            stress_race_violation_ms=-6.40,
+            explanation=(
+                "Quiet baseline displays a positive safety margin of +8.58ms "
+                "(worker finishes in 11.42ms before assert fires at 20.00ms). "
+                "Under CPU heavy load, thread contention delays worker completion to 26.40ms, "
+                "producing a 6.40ms race violation (assert fires 6.40ms before background worker completes)."
+            ),
+        ),
     )
+
+    from sandbox_engine.attestation import attest_trace
+    return attest_trace(trace)
 
 
 def main() -> None:
