@@ -5,6 +5,7 @@ import {
   ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
 import { Activity, BadgeCheck, Brain, Cpu, FlaskConical, Loader2, Play, ScrollText, ShieldAlert, ShieldCheck, XCircle } from "lucide-react";
+import { CommandBar, Pipeline, Dots, Diff, CertificateActions, CertificateSeal } from "@/components/lab-controls";
 import { FALLBACK_TRACE, fetchTrace, makeDots, pct, runLive, type Trace } from "@/lib/trace";
 
 export const Route = createFileRoute("/")({
@@ -26,11 +27,11 @@ const tip = { contentStyle: { background: "var(--popover)", border: "1px solid v
 
 function Panel({ n, title, icon, children }: { n: string; title: string; icon: React.ReactNode; children: React.ReactNode }) {
   return (
-    <section className="rounded-lg border border-border bg-card/80 p-5 backdrop-blur">
-      <header className="mb-4 flex items-center gap-3">
-        <span className="font-mono text-xs text-primary">{n}</span>
+    <section id={`stage-${n}`} className="lab-panel">
+      <header className="panel-heading">
+        <span className="section-index">STAGE {n} {n === "03" ? "& 04" : ""} // {n === "01" ? "BASELINE COIN TOSS" : n === "02" ? "PERTURBATION LEDGER" : "STRESS REJECTION GATE"}</span>
         <span className="text-muted-foreground">{icon}</span>
-        <h2 className="text-lg font-semibold tracking-tight">{title}</h2>
+        <h2 className="font-display text-2xl font-semibold">{title}</h2>
       </header>
       {children}
     </section>
@@ -40,53 +41,6 @@ function Panel({ n, title, icon, children }: { n: string; title: string; icon: R
 function Verdict({ v }: { v: "BROKEN" | "REJECTED" | "CERTIFIED" }) {
   const cls = v === "CERTIFIED" ? "border-pass/50 bg-pass/15 text-pass" : v === "REJECTED" ? "border-stress/50 bg-stress/15 text-stress" : "border-fail/50 bg-fail/15 text-fail";
   return <span className={`rounded border px-2 py-0.5 font-mono text-xs font-bold tracking-widest ${cls}`}>{v}</span>;
-}
-
-function Dots({ dots, label }: { dots: boolean[]; label: string }) {
-  const [hover, setHover] = useState<number | null>(null);
-  const fails = dots.filter((d) => !d).length;
-  const big = dots.length > 400;
-  return (
-    <div>
-      <div className="mb-1.5 flex justify-between font-mono text-[11px] text-muted-foreground">
-        <span>{label}</span>
-        <span className={fails ? "text-fail" : "text-pass"}>
-          {hover !== null ? `run #${hover + 1}: ${dots[hover] ? "PASS" : "FAIL"}` : `${fails}/${dots.length} failed`}
-        </span>
-      </div>
-      <div className={`grid gap-[2px] ${big ? "grid-cols-[repeat(50,minmax(0,1fr))]" : "grid-cols-[repeat(30,minmax(0,1fr))]"}`} onMouseLeave={() => setHover(null)}>
-        {dots.map((d, i) => (
-          <span key={i} onMouseEnter={() => setHover(i)} className={`aspect-square rounded-full transition-transform hover:scale-150 ${d ? "bg-pass/80" : "bg-fail"}`} />
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function Diff({ patch, attemptNumber }: { patch: string; attemptNumber?: number }) {
-  return (
-    <pre className="whitespace-pre-wrap break-words rounded-md border border-border bg-background p-3 font-mono text-xs leading-relaxed overflow-x-hidden">
-      {patch.split("\n").map((l, i) => {
-        let highlightClass = "";
-        if (attemptNumber === 1 && l.includes("time.sleep")) {
-          highlightClass = "bg-fail/20 text-fail font-semibold rounded px-1 -mx-1 border-l-2 border-fail";
-        } else if (attemptNumber === 2 && (l.includes("wait_for_completion") || l.includes("done_event"))) {
-          highlightClass = "bg-pass/20 text-pass font-semibold rounded px-1 -mx-1 border-l-2 border-pass";
-        } else if (l.startsWith("+++") || l.startsWith("---")) {
-          highlightClass = "text-muted-foreground";
-        } else if (l.startsWith("+")) {
-          highlightClass = "bg-pass/10 text-pass";
-        } else if (l.startsWith("-")) {
-          highlightClass = "bg-fail/10 text-fail";
-        } else if (l.startsWith("@@")) {
-          highlightClass = "text-normal";
-        } else {
-          highlightClass = "text-foreground/80";
-        }
-        return <div key={i} className={`px-1 py-0.5 ${highlightClass}`}>{l || " "}</div>;
-      })}
-    </pre>
-  );
 }
 
 function Dashboard() {
@@ -107,15 +61,16 @@ function Dashboard() {
     } else setLive({ busy: false, note: r.error });
   };
 
-  const a1 = trace.fix_attempts[0]!;
+  const a1 = trace.fix_attempts[0] ?? FALLBACK_TRACE.fix_attempts[0];
+  if (!a1) throw new Error("Trace has no fix attempts");
   const a2 = trace.fix_attempts[1] ?? a1;
-  const stressCond = trace.stage2_ledger.find((c) => c.perturbation === trace.triggering_stress_condition) ?? trace.stage2_ledger.at(-1)!;
+  const stressCond = trace.stage2_ledger.find((c) => c.perturbation === trace.triggering_stress_condition) ?? trace.stage1_baseline;
   const base = trace.stage1_baseline;
   const origStressDots = useMemo(() => stressCond.run_dots?.length ? stressCond.run_dots : makeDots(stressCond.total_runs, stressCond.failures), [stressCond]);
 
   const ledgerData = trace.stage2_ledger.map((c) => ({
-    label: c.label, key: c.perturbation, rate: +(c.failure_rate * 100).toFixed(1),
-    err: [+((c.failure_rate - c.ci_95_lower) * 100).toFixed(1), +((c.ci_95_upper - c.failure_rate) * 100).toFixed(1)],
+    label: c.label, key: c.perturbation, rate: +(c.failure_rate * 100).toFixed(2),
+    err: [+((c.failure_rate - c.ci_95_lower) * 100).toFixed(2), +((c.ci_95_upper - c.failure_rate) * 100).toFixed(2)],
     lo: c.ci_95_lower, hi: c.ci_95_upper, f: c.failures, n: c.total_runs,
   }));
   const verdictData = [
@@ -126,39 +81,16 @@ function Dashboard() {
   const fmtN = (n: number) => n.toLocaleString("en-US");
 
   return (
-    <main className="mx-auto max-w-7xl space-y-6 px-4 py-8 md:px-8">
-      {/* 1. Header */}
-      <header className="rounded-lg border border-border bg-card/80 p-6">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <div className="flex items-center gap-3">
-              <div className="grid h-10 w-10 place-items-center rounded-full border-2 border-primary font-mono text-lg font-bold text-primary">¢</div>
-              <h1 className="font-mono text-3xl font-bold tracking-tight">COINFLIP</h1>
-            </div>
-            <p className="mt-1 text-sm text-muted-foreground">Statistical Flaky-Test Investigator &amp; Verifier · Nebius × NVIDIA Hackathon</p>
-          </div>
-          <div className="flex flex-col items-end gap-2">
-            <button onClick={onLive} disabled={live.busy} className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition hover:brightness-110 disabled:opacity-60">
-              {live.busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
-              Run Live Sandbox Mini-Batch (30 runs)
-            </button>
-            {live.note && <p className="max-w-sm text-right font-mono text-xs text-stress">{live.note}</p>}
-          </div>
-        </div>
-        <div className="mt-5 flex flex-wrap items-center gap-2">
-          <span className="inline-flex items-center gap-1.5 rounded-full border border-primary/40 bg-primary/10 px-3 py-1 text-xs text-primary">
-            <Activity className="h-3.5 w-3.5" /> {trace.execution_mode_badge}
-          </span>
-          <span className="rounded-full border border-border px-3 py-1 font-mono text-xs text-muted-foreground">
-            data: {source === "loading" ? "connecting…" : source === "api" ? "live backend" : "built-in trace"}
-          </span>
-        </div>
-        <dl className="mt-4 grid gap-3 font-mono text-xs md:grid-cols-3">
-          <div><dt className="text-muted-foreground">project</dt><dd>{trace.project_name}</dd></div>
-          <div className="md:col-span-2"><dt className="text-muted-foreground">test</dt><dd className="break-all">{trace.test_identifier}</dd></div>
-        </dl>
+    <>
+      <CommandBar trace={trace} busy={live.busy} note={live.note} onLive={onLive} />
+      <main className="lab-main">
+      <header className="lab-hero">
+        <div className="hero-topline"><span className="font-mono text-xs text-primary">COINFLIP / RESEARCH CONSOLE</span><span className="font-mono text-xs text-muted-foreground">NEBIUS × NVIDIA · 2026</span></div>
+        <div className="hero-title-row"><div><h1 className="font-display">Proof. Not probability.</h1><p className="hero-subtitle">Statistical Flaky-Test Investigator &amp; Verifier</p></div><div className="hero-verdict"><span className="font-mono text-[10px] text-muted-foreground">FINAL VERDICT</span><strong className="font-mono text-pass">{trace.final_verdict}<BadgeCheck /></strong><span className="font-mono text-xs text-muted-foreground">95% confidence</span></div></div>
+        <div className="hero-metadata"><span className="replay-badge"><Activity className="h-3 w-3" />{trace.execution_mode_badge}</span><span className="font-mono text-[10px] text-muted-foreground">{source === "loading" ? "CONNECTING…" : source === "api" ? "API TRACE" : "BUILT-IN RECORDED TRACE"}</span></div>
+        <dl className="hero-trace"><div><dt>PROJECT</dt><dd>{trace.project_name}</dd></div><div><dt>TEST IDENTIFIER</dt><dd className="break-all">{trace.test_identifier}</dd></div><div><dt>TRACE</dt><dd>{trace.trace_id}</dd></div></dl>
       </header>
-
+      <Pipeline />
       {/* 2. Dot matrix */}
       <Panel n="01" title="The Coin-Toss Dot Matrix" icon={<FlaskConical className="h-4 w-4" />}>
         <div className="grid gap-5 lg:grid-cols-3">
@@ -167,10 +99,10 @@ function Dashboard() {
             { t: "Attempt 1 · Naive Quick Fix", v: "REJECTED" as const, n: a1.normal_cert_result.run_dots, s: a1.stress_cert_result.run_dots },
             { t: "Attempt 2 · Coinflip Fix", v: "CERTIFIED" as const, n: a2.normal_cert_result.run_dots, s: a2.stress_cert_result.run_dots },
           ].map((x) => (
-            <div key={x.t} className="space-y-4 rounded-md border border-border bg-background/60 p-4">
+            <div key={x.t} className="matrix-item space-y-5">
               <div className="flex items-center justify-between"><h3 className="text-sm font-semibold">{x.t}</h3><Verdict v={x.v} /></div>
-              <Dots dots={x.n} label="Normal machine" />
-              <Dots dots={x.s} label="CPU stress" />
+              <Dots dots={x.n} label="Quiet Baseline" />
+              <Dots dots={x.s} label="Heavy CPU Load" />
             </div>
           ))}
         </div>
@@ -187,19 +119,14 @@ function Dashboard() {
                   type="number"
                   stroke={C.muted}
                   fontSize={11}
-                  domain={[0, 100]}
-                  ticks={[0, 20, 40, 60, 80, 100]}
-                  tickFormatter={(v: number) => `${Number(v).toFixed(0)}%`}
+                  domain={[0, Math.max(70, ...ledgerData.map((d) => Math.ceil(d.hi * 100)))]}
+                  tickFormatter={(v: number | string) => {
+                    const n = Number(v);
+                    return isNaN(n) ? String(v) : `${n.toFixed(n % 1 === 0 ? 0 : 1)}%`;
+                  }}
                 />
                 <YAxis type="category" dataKey="label" width={170} stroke={C.muted} fontSize={11} />
-                <Tooltip
-                  {...tip}
-                  cursor={{ fill: "var(--accent)" }}
-                  formatter={(v: number, _n, p) => [
-                    `${Number(v).toFixed(1)}% (${p.payload.f}/${p.payload.n}) · CI ${pct(p.payload.lo, 1)}–${pct(p.payload.hi, 1)}`,
-                    "failure rate",
-                  ]}
-                />
+                <Tooltip {...tip} cursor={{ fill: "var(--accent)" }} formatter={(v: number, _n, p) => [`${typeof v === "number" ? v.toFixed(1) : v}% (${p.payload.f}/${p.payload.n}) · CI ${pct(p.payload.lo, 2)}–${pct(p.payload.hi, 2)}`, "failure rate"]} />
                 <Bar dataKey="rate" radius={[0, 4, 4, 0]}>
                   {ledgerData.map((d) => (
                     <Cell key={d.key} fill={d.key === trace.triggering_stress_condition ? C.fail : d.key.startsWith("cpu") ? C.stress : C.normal} />
@@ -222,17 +149,25 @@ function Dashboard() {
             </div>
           </div>
         </div>
+      <div className="ledger-table-wrap"><table className="ledger-table"><thead><tr><th>PERTURBATION</th><th>FAILED / RUNS</th><th>FAILURE RATE</th><th>95% WILSON INTERVAL</th><th>OBSERVATION</th></tr></thead><tbody>{trace.stage2_ledger.map(c => <tr key={c.perturbation} className={c.perturbation === trace.triggering_stress_condition ? "trigger-row" : ""}><td>{c.label}<small>{c.perturbation}</small></td><td>{c.failures} / {c.total_runs}</td><td>{pct(c.failure_rate, 1)}</td><td>[{c.ci_95_lower.toFixed(4)}, {c.ci_95_upper.toFixed(4)}]</td><td>{c.perturbation === trace.triggering_stress_condition ? <span className="trigger-badge"><span className="status-dot" />TRIGGERING PERTURBATION DETECTED</span> : <span className="text-muted-foreground">{c.perturbation.startsWith("cpu") ? "CPU SENSITIVE" : "CONTROL"}</span>}</td></tr>)}</tbody></table></div>
       </Panel>
 
       {/* 4. Verdict comparison + diff + streak */}
-      <Panel n="03" title="Stage 4 · Fix Verdicts" icon={<ShieldAlert className="h-4 w-4" />}>
+      <Panel n="03" title="A fix is only as good as its evidence." icon={<ShieldAlert className="h-4 w-4" />}>
         <div className="grid gap-5 lg:grid-cols-2">
           <div className="h-[300px]">
             <ResponsiveContainer>
               <BarChart data={verdictData}>
                 <CartesianGrid stroke={C.grid} strokeDasharray="3 3" vertical={false} />
                 <XAxis dataKey="name" stroke={C.muted} fontSize={11} />
-                <YAxis unit="%" stroke={C.muted} fontSize={11} />
+                <YAxis
+                  stroke={C.muted}
+                  fontSize={11}
+                  tickFormatter={(v: number | string) => {
+                    const n = Number(v);
+                    return isNaN(n) ? String(v) : `${n.toFixed(n % 1 === 0 ? 0 : 1)}%`;
+                  }}
+                />
                 <Tooltip {...tip} cursor={{ fill: "var(--accent)" }} formatter={(v: number) => `${v.toFixed(1)}%`} />
                 <Legend wrapperStyle={{ fontSize: 12 }} />
                 <Bar dataKey="normal" name="Normal Machine" fill={C.normal} radius={[4, 4, 0, 0]} />
@@ -246,8 +181,23 @@ function Dashboard() {
               <ResponsiveContainer>
                 <LineChart data={trace.streak_curve_data.points}>
                   <CartesianGrid stroke={C.grid} strokeDasharray="3 3" />
-                  <XAxis dataKey="true_failure_rate_pct" unit="%" stroke={C.muted} fontSize={11} />
-                  <YAxis unit="%" stroke={C.muted} fontSize={11} />
+                  <XAxis
+                    dataKey="true_failure_rate_pct"
+                    stroke={C.muted}
+                    fontSize={11}
+                    tickFormatter={(v: number | string) => {
+                      const n = Number(v);
+                      return isNaN(n) ? String(v) : `${n.toFixed(n % 1 === 0 ? 0 : 1)}%`;
+                    }}
+                  />
+                  <YAxis
+                    stroke={C.muted}
+                    fontSize={11}
+                    tickFormatter={(v: number | string) => {
+                      const n = Number(v);
+                      return isNaN(n) ? String(v) : `${n.toFixed(n % 1 === 0 ? 0 : 1)}%`;
+                    }}
+                  />
                   <Tooltip {...tip} labelFormatter={(l) => `true failure rate ${l}%`} />
                   <Legend wrapperStyle={{ fontSize: 11 }} />
                   <Line dataKey="pass_1_run_pct" name="P(pass 1 run)" stroke={C.pass} dot={false} strokeWidth={2} />
@@ -269,14 +219,14 @@ function Dashboard() {
             <p className="font-mono text-[11px] text-muted-foreground">Rule of Three: 0 failures in N runs ⇒ true rate &lt; 3/N (95%)</p>
           </div>
         </div>
-        <div className="mt-6 grid gap-4 lg:grid-cols-2">
+        <div id="stage-04" className="comparison-arena mt-6 grid gap-6 lg:grid-cols-2">
           {[a1, a2].map((a) => (
-            <div key={a.attempt_number} className="space-y-3">
+            <div key={a.attempt_number} className={`fix-item space-y-4 ${a.verdict === "CERTIFIED" ? "fix-certified" : "fix-rejected"}`}><div className={`arena-stamp ${a.verdict === "CERTIFIED" ? "text-pass" : "text-fail"}`}>{a.verdict === "CERTIFIED" ? `CERTIFIED (< ${pct(a.upper_bound_95_stress, 2)} BOUND)` : "REJECTED UNDER STRESS"}</div><div className="flex justify-between gap-4 border-b border-border pb-4 font-mono"><div><span className="text-[10px] text-muted-foreground">QUIET MACHINE</span><p className="text-2xl text-pass">{pct(a.normal_cert_result.failure_rate)}<span className="ml-2 text-xs text-muted-foreground">{a.normal_cert_result.failures}/{fmtN(a.normal_cert_result.total_runs)}</span></p></div><div><span className="text-[10px] text-muted-foreground">CPU STRESS</span><p className={`text-2xl ${a.verdict === "CERTIFIED" ? "text-pass" : "text-fail"}`}>{pct(a.stress_cert_result.failure_rate)}<span className="ml-2 text-xs text-muted-foreground">{a.stress_cert_result.failures}/{fmtN(a.stress_cert_result.total_runs)}</span></p></div></div>
               <div className="flex items-center justify-between gap-2">
                 <h3 className="text-sm font-semibold">Attempt {a.attempt_number} · {a.fix_title}</h3>
                 <Verdict v={a.verdict} />
               </div>
-              <Diff patch={a.git_diff_patch} attemptNumber={a.attempt_number} />
+              <Diff patch={a.git_diff_patch} />
               {a.rejection_reason ? (
                 <p className="flex gap-2 rounded-md border border-stress/40 bg-stress/10 p-3 text-xs text-stress"><XCircle className="h-4 w-4 shrink-0" />{a.rejection_reason}</p>
               ) : (
@@ -288,14 +238,15 @@ function Dashboard() {
       </Panel>
 
       {/* 5. Certificate */}
-      <section className="relative overflow-hidden rounded-lg border-2 border-pass/60 bg-card p-8">
-        <div className="pointer-events-none absolute -right-10 -top-10 h-56 w-56 rounded-full border-[14px] border-pass/10" />
+      <section id="stage-05" className="certificate lab-panel">
+        <span className="section-index">STAGE 05 // STATISTICAL CERTIFICATE</span>
+        
         <div className="flex flex-wrap items-center justify-between gap-4 border-b border-dashed border-border pb-5">
           <div className="flex items-center gap-3">
-            <ShieldCheck className="h-10 w-10 text-pass" />
+            <CertificateSeal />
             <div>
               <p className="font-mono text-xs tracking-[0.3em] text-muted-foreground">OFFICIAL</p>
-              <h2 className="font-mono text-2xl font-bold">Coinflip Certificate</h2>
+              <h2 className="font-display text-3xl font-bold">Coinflip Certificate</h2>
             </div>
           </div>
           <div className="rounded-md border-2 border-pass px-5 py-2 text-center">
@@ -314,8 +265,11 @@ function Dashboard() {
           <Field k="Models Used" v={<span className="text-xs">{trace.models_used.bulk_log_reading}<br />{trace.models_used.deep_reasoning}</span>} />
           <Field k="Execution Backend" v={base.execution_backend} />
         </dl>
+        <div className="formula-band"><span className="font-mono text-[10px] text-muted-foreground">RULE OF THREE / 95% CONFIDENCE</span><p className="font-mono">Upper Bound = 3 / N = {pct(3 / a2.stress_cert_result.total_runs, 2)}<span className="text-muted-foreground"> · N = {fmtN(a2.stress_cert_result.total_runs)}</span></p></div>
+        <CertificateActions trace={trace} />
       </section>
-    </main>
+    <footer className="lab-footer"><span>COINFLIP / STATISTICAL INVESTIGATION LAB</span><span>MEASURE. PERTURB. VERIFY.</span></footer></main>
+    </>
   );
 }
 

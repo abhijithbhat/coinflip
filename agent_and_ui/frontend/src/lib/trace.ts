@@ -133,7 +133,7 @@ export const FALLBACK_TRACE: Trace = {
       root_cause_diagnosis:
         "Order, seed, clock, and network make no difference. Only CPU pressure spikes failures (31% at half cores, 58% under heavy load). The test races the background worker with a fixed sleep instead of waiting for the completion signal.",
       git_diff_patch:
-        "--- a/test_worker.py\n+++ b/test_worker.py\n@@ -12,2 +12,2 @@\n-    time.sleep(1.0)\n+    completed = worker.wait_for_completion(timeout=5.0)\n     assert worker.status == 'DONE'",
+        "--- a/test_worker.py\n+++ b/test_worker.py\n@@ -12,2 +12,2 @@\n-    time.sleep(1.0)\n+    assert worker.done_event.wait(timeout=5.0), 'Worker timed out'\n     assert worker.status == 'DONE'",
       normal_cert_result: cert(0),
       stress_cert_result: cert(0),
       upper_bound_95_normal: 0.003,
@@ -186,6 +186,23 @@ function normalize(t: Trace): Trace {
   return t;
 }
 
+export async function fetchStreakCurve(): Promise<StreakPoint[]> {
+  for (const url of ["/api/streak-curve", "http://localhost:8000/api/streak-curve"]) {
+    try {
+      const ctrl = new AbortController();
+      const t = setTimeout(() => ctrl.abort(), 2500);
+      const r = await fetch(url, { signal: ctrl.signal });
+      clearTimeout(t);
+      if (!r.ok) continue;
+      const j = await r.json();
+      if (Array.isArray(j)) return j as StreakPoint[];
+    } catch {
+      /* try next */
+    }
+  }
+  return FALLBACK_TRACE.streak_curve_data.points;
+}
+
 export async function runLive(): Promise<{ ok: boolean; data?: Partial<Trace>; error?: string }> {
   for (const url of ["/api/run-live", "http://localhost:8000/api/run-live"]) {
     try {
@@ -204,3 +221,4 @@ export async function runLive(): Promise<{ ok: boolean; data?: Partial<Trace>; e
 }
 
 export const pct = (x: number, d = 1) => `${(x * 100).toFixed(d)}%`;
+

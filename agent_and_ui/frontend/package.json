@@ -5,7 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite dev",
+    "prebuild": "node -e \"import('node:fs').then(fs => fs.rmSync('assets', { recursive: true, force: true, maxRetries: 3 }))\"",
     "build": "vite build",
+    "postbuild": "node prerender.js",
     "build:dev": "vite build --mode development",
     "preview": "vite preview",
     "lint": "eslint .",
