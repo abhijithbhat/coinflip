@@ -1,0 +1,34 @@
+{
+  "suite_id": "case_04_async_queue_race",
+  "title": "Producer-Consumer Queue Race Condition",
+  "category": "Async Wait / Concurrency (IDoFT: concurrency-dependent)",
+  "test_file": "test_event_queue.py",
+  "test_identifier": "test_event_queue.py::test_all_events_flushed",
+  "source_modules": ["event_queue.py"],
+  "root_cause": "Test uses time.sleep(0.020) to wait for consumer thread to drain 10 events. Consumer does SHA-256 + 1ms sleep per event (~10-15ms total). Under cpu_heavy_load, GIL contention + OS scheduling delays push consumer time to 50-200ms+, far exceeding the 20ms wait.",
+  "triggering_perturbation": "cpu_heavy_load",
+  "also_affected_by": "cpu_half_cores",
+  "expected_failure_rates": {
+    "baseline": "~5-15% (tight race on quiet machine)",
+    "shuffle_order": "~5-15%",
+    "seed_change": "~5-15%",
+    "clock_shift": "~5-15%",
+    "network_cut": "~5-15%",
+    "cpu_half_cores": "~20-40% (fewer cores = slower consumer)",
+    "cpu_heavy_load": ">70% (consumer thread starved by CPU burners)"
+  },
+  "patches": {
+    "naive_quick_fix": {
+      "file": "patches/naive_quick_fix.py",
+      "diff": "patches/naive_quick_fix.diff",
+      "description": "Increases sleep from 0.020 to 0.200. Still fails >25% under cpu_heavy_load because consumer can take 150-300ms.",
+      "expected_verdict": "REJECTED"
+    },
+    "certified_real_fix": {
+      "file": "patches/certified_real_fix.py",
+      "diff": "patches/certified_real_fix.diff",
+      "description": "Uses wait_for_drain(timeout=5.0) which internally calls thread.join(). Immune to CPU load.",
+      "expected_verdict": "CERTIFIED"
+    }
+  }
+}

@@ -1,0 +1,9 @@
+--- a/test_worker.py
++++ b/test_worker.py
+@@ -38,4 +38,4 @@
+-    # Flawed pattern: fixed arbitrary sleep (races worker under load)
+-    time.sleep(0.009)
+-    assert worker.is_completed is True, "Background worker timed out before completion"
++    # Coinflip Real Fix: Proper event synchronization
++    completed = worker.wait_for_completion(timeout=5.0)
++    assert completed, "Worker timed out waiting for event signal"

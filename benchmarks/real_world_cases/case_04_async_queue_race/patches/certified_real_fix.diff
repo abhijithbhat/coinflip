@@ -1,0 +1,11 @@
+--- a/test_event_queue.py
++++ b/test_event_queue.py
+@@ -10,4 +10,5 @@
+-    # Flawed pattern: fixed arbitrary sleep
+-    time.sleep(0.020)
+-
+-    assert len(eq.flushed_events) == 10, (
++    # Coinflip Real Fix: proper synchronization via thread join
++    drained = eq.wait_for_drain(timeout=5.0)
++    assert drained, "Consumer thread did not finish within timeout"
++    assert len(eq.flushed_events) == 10, (

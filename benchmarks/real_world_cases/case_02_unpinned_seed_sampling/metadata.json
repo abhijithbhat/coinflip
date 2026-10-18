@@ -1,0 +1,33 @@
+{
+  "suite_id": "case_02_unpinned_seed_sampling",
+  "title": "Unpinned Seed Sampling with Hash-Dependent Feature Ranking",
+  "category": "Non-Deterministic (IDoFT: ND / NOD-hash)",
+  "test_file": "test_sampler.py",
+  "test_identifier": "test_sampler.py::test_batch_score_above_threshold",
+  "source_modules": ["sampler.py"],
+  "root_cause": "Test uses hash() for feature ranking (PYTHONHASHSEED-sensitive) and module-level random for subset selection (COINFLIP_RANDOM_SEED-sensitive). Under seed_change, both sources are correlated (same run_seed), amplifying threshold failures.",
+  "triggering_perturbation": "seed_change",
+  "expected_failure_rates": {
+    "baseline": "~2-5% (independent hash + random sources)",
+    "shuffle_order": "~2-5%",
+    "seed_change": "~8-15% (correlated hash + random amplification)",
+    "clock_shift": "~2-5%",
+    "network_cut": "~2-5%",
+    "cpu_half_cores": "~2-5%",
+    "cpu_heavy_load": "~2-5%"
+  },
+  "patches": {
+    "naive_quick_fix": {
+      "file": "patches/naive_quick_fix.py",
+      "diff": "patches/naive_quick_fix.diff",
+      "description": "Widens threshold from 75.0 to 45.0. Still fails on tail seeds under seed_change.",
+      "expected_verdict": "REJECTED"
+    },
+    "certified_real_fix": {
+      "file": "patches/certified_real_fix.py",
+      "diff": "patches/certified_real_fix.diff",
+      "description": "Uses local random.Random(42) and removes hash dependency. Fully deterministic, 0% failures.",
+      "expected_verdict": "CERTIFIED"
+    }
+  }
+}

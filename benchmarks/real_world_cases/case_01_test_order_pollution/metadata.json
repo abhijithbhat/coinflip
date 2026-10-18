@@ -1,0 +1,33 @@
+{
+  "suite_id": "case_01_test_order_pollution",
+  "title": "Test Order Pollution via Shared Module-Level Cache",
+  "category": "Order-Dependent (IDoFT: OD)",
+  "test_file": "test_config_cache.py",
+  "test_identifier": "test_config_cache.py::test_read_default_rate",
+  "source_modules": ["config_service.py"],
+  "root_cause": "Module-level _rate_config_cache dict persists between tests. test_override_premium_rate mutates it, polluting state for test_read_default_rate when execution order is shuffled.",
+  "triggering_perturbation": "shuffle_order",
+  "expected_failure_rates": {
+    "baseline": "0%",
+    "shuffle_order": "~50% (depends on random ordering of 2 tests)",
+    "seed_change": "0%",
+    "clock_shift": "0%",
+    "network_cut": "0%",
+    "cpu_half_cores": "0%",
+    "cpu_heavy_load": "0%"
+  },
+  "patches": {
+    "naive_quick_fix": {
+      "file": "patches/naive_quick_fix.py",
+      "diff": "patches/naive_quick_fix.diff",
+      "description": "Inlines _rate_config_cache.clear() at the start of test_read_default_rate. Brittle — doesn't protect new tests.",
+      "expected_verdict": "REJECTED"
+    },
+    "certified_real_fix": {
+      "file": "patches/certified_real_fix.py",
+      "diff": "patches/certified_real_fix.diff",
+      "description": "Adds autouse pytest fixture calling reset_config() before and after each test. Guarantees clean state regardless of order.",
+      "expected_verdict": "CERTIFIED"
+    }
+  }
+}

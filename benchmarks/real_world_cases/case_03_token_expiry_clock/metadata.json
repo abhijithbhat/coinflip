@@ -1,0 +1,33 @@
+{
+  "suite_id": "case_03_token_expiry_clock",
+  "title": "Cache TTL Validator Mixing Wall-Clock Sources",
+  "category": "Time-Dependent (IDoFT: clock-sensitive)",
+  "test_file": "test_token_ttl.py",
+  "test_identifier": "test_token_ttl.py::test_cache_stores_and_retrieves",
+  "source_modules": ["token_cache.py"],
+  "root_cause": "Cache computes entry age as time.time() - os.path.getmtime(). Under clock_shift, time.time() is monkey-patched +3600s but getmtime() returns real OS time. Mismatch makes entries appear 3600s old immediately, exceeding TTL.",
+  "triggering_perturbation": "clock_shift",
+  "expected_failure_rates": {
+    "baseline": "0%",
+    "shuffle_order": "0%",
+    "seed_change": "0%",
+    "clock_shift": "100% (immediate expiry due to +3600s time.time() shift)",
+    "network_cut": "0%",
+    "cpu_half_cores": "0%",
+    "cpu_heavy_load": "0%"
+  },
+  "patches": {
+    "naive_quick_fix": {
+      "file": "patches/naive_quick_fix.py",
+      "diff": "patches/naive_quick_fix.diff",
+      "description": "Increases TTL to 4000s to exceed the 3600s clock shift. Passes this specific shift but fragile to larger shifts.",
+      "expected_verdict": "REJECTED"
+    },
+    "certified_real_fix": {
+      "file": "patches/certified_real_fix.py",
+      "diff": "patches/certified_real_fix.diff",
+      "description": "Uses time.monotonic() for age tracking instead of mixing time.time() with os.path.getmtime(). Immune to any clock shift.",
+      "expected_verdict": "CERTIFIED"
+    }
+  }
+}
