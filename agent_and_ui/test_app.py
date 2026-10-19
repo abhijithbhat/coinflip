@@ -254,3 +254,150 @@ class TestRootAndCORS:
         assert response.status_code == 200
         origin = response.headers.get("access-control-allow-origin")
         assert origin in ("*", "http://localhost:5173")
+
+
+# -------------------------------------------------------------------------------
+# 7. Phase 5: Enrichment pass-through
+# -------------------------------------------------------------------------------
+
+
+class TestTraceEnrichment:
+    def test_trace_has_causal_analytics(self):
+        response = client.get("/api/trace")
+        assert response.status_code == 200
+        data = response.json()
+        for row in data.get("stage2_ledger", []):
+            assert "causal_analytics" in row
+
+    def test_trace_has_attestation(self):
+        response = client.get("/api/trace")
+        assert response.status_code == 200
+        data = response.json()
+        assert "attestation" in data
+        att = data["attestation"]
+        assert att["algorithm"] == "SHA-256-Merkle"
+        assert att["verified"] is True
+
+    def test_trace_has_nemotron_reasoning_trace(self):
+        response = client.get("/api/trace")
+        assert response.status_code == 200
+        data = response.json()
+        assert "nemotron_reasoning_trace" in data
+
+    def test_trace_has_race_timeline(self):
+        response = client.get("/api/trace")
+        assert response.status_code == 200
+        data = response.json()
+        assert "race_timeline" in data
+
+
+# -------------------------------------------------------------------------------
+# 8. Phase 5: Archetype Catalog in /api/traces
+# -------------------------------------------------------------------------------
+
+
+class TestArchetypeCatalog:
+    def test_list_traces_includes_archetype_catalog(self):
+        response = client.get("/api/traces")
+        assert response.status_code == 200
+        data = response.json()
+        assert "archetype_catalog" in data
+        catalog = data["archetype_catalog"]
+        names = [a["name"] for a in catalog]
+        assert "hero" in names
+        assert "order_pollution" in names
+        assert "seed_sampling" in names
+        assert "clock_expiry" in names
+
+    def test_get_archetype_by_name_hero(self):
+        response = client.get("/api/traces/hero")
+        assert response.status_code == 200
+        data = response.json()
+        assert "trace_id" in data
+
+    def test_get_archetype_by_name_order_pollution(self):
+        response = client.get("/api/traces/order_pollution")
+        assert response.status_code == 200
+        data = response.json()
+        # Should have enrichment keys
+        assert "streak_curve_data" in data
+
+    def test_get_archetype_by_name_seed_sampling(self):
+        response = client.get("/api/traces/seed_sampling")
+        assert response.status_code == 200
+
+    def test_get_archetype_by_name_clock_expiry(self):
+        response = client.get("/api/traces/clock_expiry")
+        assert response.status_code == 200
+
+
+# -------------------------------------------------------------------------------
+# 9. Phase 5: GET /api/stream-live (SSE)
+# -------------------------------------------------------------------------------
+
+
+class TestStreamLiveEndpoint:
+    def test_stream_live_returns_event_stream(self):
+        response = client.get("/api/stream-live")
+        assert response.status_code == 200
+        assert "text/event-stream" in response.headers.get("content-type", "")
+
+    def test_stream_live_contains_all_stage_events(self):
+        response = client.get("/api/stream-live")
+        assert response.status_code == 200
+        body = response.text
+        assert "stage1_measure" in body
+        assert "stage2_perturbation" in body
+        assert "stage3_nemotron_reasoning" in body
+        assert "stage4_sprt_early_reject" in body
+        assert "stage3_nemotron_retry" in body
+        assert "stage4_1000_certified" in body
+        assert "stage5_attestation_signed" in body
+        assert "done" in body
+
+    def test_stream_live_events_are_valid_json(self):
+        import re
+        response = client.get("/api/stream-live")
+        body = response.text
+        data_lines = re.findall(r"^data: (.+)$", body, re.MULTILINE)
+        for line in data_lines:
+            parsed = json.loads(line)
+            assert isinstance(parsed, dict)
+
+
+# -------------------------------------------------------------------------------
+# 10. Phase 5: POST /api/verify-attestation
+# -------------------------------------------------------------------------------
+
+
+class TestVerifyAttestationEndpoint:
+    def test_verify_attestation_default_hero(self):
+        response = client.post("/api/verify-attestation")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["verified"] is True
+        assert data["algorithm"] == "SHA-256-Merkle"
+        assert len(data["ledger_merkle_root"]) == 64
+        assert len(data["patch_sha256"]) == 64
+        assert len(data["trace_payload_sha256"]) == 64
+
+    def test_verify_attestation_with_custom_trace(self):
+        # Minimal trace payload
+        trace = {
+            "trace_id": "test_verify_123",
+            "stage1_baseline": {
+                "perturbation": "baseline",
+                "total_runs": 100,
+                "failures": 5,
+                "passes": 95,
+            },
+            "stage2_ledger": [],
+            "fix_attempts": [],
+            "final_verdict": "NOT_YET_CERTIFIED",
+        }
+        response = client.post("/api/verify-attestation", json={"trace": trace})
+        assert response.status_code == 200
+        data = response.json()
+        assert data["verified"] is True
+        assert data["algorithm"] == "SHA-256-Merkle"
+

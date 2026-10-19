@@ -500,3 +500,130 @@ def test_live_summarize_failure_logs_lightning():
     assert len(result) > 20, f"Response too short (len={len(result)}): {result!r}"
     print(f"\n[live smoke] summarize_failure_logs ({len(result)} chars):\n{result[:300]}")
 
+
+# -------------------------------------------------------------------------------
+# J. Phase 5: timeline_profile and ast_audit kwargs
+# -------------------------------------------------------------------------------
+
+
+class TestDiagnosePhase5Kwargs:
+    def _stage1(self):
+        return _make_batch("baseline", 21, 300)
+
+    def _stage2(self):
+        return [
+            _make_batch("baseline", 3, 30),
+            _make_batch("cpu_heavy_load", 28, 30),
+        ]
+
+    def test_timeline_profile_injected_into_prompt(self):
+        agent = NemotronAgent(api_key="dummy")
+        captured: list[Any] = []
+
+        timeline = {
+            "measured_quiet_worker_ms": 12.34,
+            "measured_quiet_assert_ms": 20.0,
+            "quiet_margin_ms": 7.66,
+            "measured_stress_worker_ms": 28.41,
+            "measured_stress_assert_ms": 20.0,
+            "stress_race_violation_ms": -8.41,
+            "explanation": "Race condition under CPU load",
+        }
+
+        def capture_call(primary_model, fallback_model, messages, **kwargs):
+            captured.extend(messages)
+            return (
+                '```json\n{"fix_title":"Fix","root_cause_diagnosis":"race","patched_code":"code","git_diff_patch":""}\n```',
+                primary_model,
+            )
+
+        with patch.object(agent, "_call_with_fallback", side_effect=capture_call):
+            agent.diagnose_and_propose_fix(
+                test_code=FLAKY_CODE,
+                stage1_baseline=self._stage1(),
+                stage2_ledger=self._stage2(),
+                timeline_profile=timeline,
+            )
+
+        full = " ".join(m.get("content", "") for m in captured)
+        assert "Thread Race Timeline" in full or "12.34" in full
+
+    def test_ast_audit_injected_into_prompt(self):
+        agent = NemotronAgent(api_key="dummy")
+        captured: list[Any] = []
+
+        audit = {
+            "status_code": "WARN_SLEEP_INFLATION",
+            "passed_gatekeeper": True,
+            "assertions_preserved": True,
+            "sleep_inflation_detected": True,
+            "synchronization_primitives_detected": [],
+            "summary": "Sleep inflation detected",
+        }
+
+        def capture_call(primary_model, fallback_model, messages, **kwargs):
+            captured.extend(messages)
+            return (
+                '```json\n{"fix_title":"Fix","root_cause_diagnosis":"race","patched_code":"code","git_diff_patch":""}\n```',
+                primary_model,
+            )
+
+        with patch.object(agent, "_call_with_fallback", side_effect=capture_call):
+            agent.diagnose_and_propose_fix(
+                test_code=FLAKY_CODE,
+                stage1_baseline=self._stage1(),
+                stage2_ledger=self._stage2(),
+                ast_audit=audit,
+            )
+
+        full = " ".join(m.get("content", "") for m in captured)
+        assert "AST Semantic Gatekeeper" in full or "WARN_SLEEP_INFLATION" in full
+
+    def test_last_reasoning_trace_stored_on_success(self):
+        agent = NemotronAgent(api_key="dummy")
+        raw_response = (
+            '```json\n{"fix_title":"Fix","root_cause_diagnosis":"race",'
+            '"patched_code":"code","git_diff_patch":""}\n```'
+        )
+        with patch.object(agent, "_call_with_fallback", return_value=(raw_response, "test-model")):
+            agent.diagnose_and_propose_fix(
+                test_code=FLAKY_CODE,
+                stage1_baseline=self._stage1(),
+                stage2_ledger=self._stage2(),
+            )
+        assert agent.last_reasoning_trace == raw_response
+
+    def test_last_reasoning_trace_stored_on_offline_fallback(self):
+        agent = NemotronAgent(api_key="dummy")
+        agent._call_with_fallback = MagicMock(
+            side_effect=RuntimeError("simulated offline")
+        )
+        result = agent.diagnose_and_propose_fix(
+            test_code=FLAKY_CODE,
+            stage1_baseline=self._stage1(),
+            stage2_ledger=self._stage2(),
+        )
+        assert isinstance(result, tuple) and len(result) == 3
+        assert agent.last_reasoning_trace is not None
+        assert "<reasoning>" in agent.last_reasoning_trace
+
+    def test_init_has_last_reasoning_trace_none(self):
+        agent = NemotronAgent(api_key="dummy")
+        assert agent.last_reasoning_trace is None
+
+    def test_backwards_compatible_without_kwargs(self):
+        """Calling without timeline_profile and ast_audit still works."""
+        agent = NemotronAgent(api_key="dummy")
+        raw_response = (
+            '```json\n{"fix_title":"Fix","root_cause_diagnosis":"race",'
+            '"patched_code":"code","git_diff_patch":""}\n```'
+        )
+        with patch.object(agent, "_call_with_fallback", return_value=(raw_response, "test-model")):
+            title, diag, code = agent.diagnose_and_propose_fix(
+                test_code=FLAKY_CODE,
+                stage1_baseline=self._stage1(),
+                stage2_ledger=self._stage2(),
+            )
+        assert title == "Fix"
+        assert "race" in diag
+

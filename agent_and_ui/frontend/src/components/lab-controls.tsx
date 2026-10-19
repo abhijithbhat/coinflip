@@ -1,23 +1,25 @@
 import { useEffect, useState } from "react";
-import { Activity, ArrowDown, Check, Copy, Download, Loader2, Play, Radio, Cpu, ChevronDown } from "lucide-react";
+import { Activity, ArrowDown, Check, Copy, Download, Loader2, Play, Radio, Cpu, ChevronDown, FlaskConical as FlaskIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import type { Trace } from "@/lib/trace";
+import { BENCHMARK_CASES, type CaseId, type Trace } from "@/lib/trace";
+import type { Attestation } from "@/lib/telemetry";
 
 const themes = [
   { id: "porcelain-signal", name: "Porcelain & Signal Blue" },
   { id: "graphite-lime", name: "Graphite & Lime" },
   { id: "berry-vanilla", name: "Berry & Vanilla" },
   { id: "phantom-ice", name: "Phantom & Ice" },
-  { id: "olive-butter", name: "Olive & Butter" },
+  { id: "butter-iris", name: "Butter & Iris" },
 ];
 
-export function CommandBar({ trace, busy, note, onLive }: { trace: Trace; busy: boolean; note?: string | undefined; onLive: () => void }) {
+export function CommandBar({ trace, busy, note, onLive, caseId, caseBusy, onCase }: { trace: Trace; busy: boolean; note?: string | undefined; onLive: () => void; caseId: CaseId; caseBusy: boolean; onCase: (id: CaseId) => void }) {
   const [theme, setTheme] = useState("porcelain-signal");
   const [open, setOpen] = useState(false);
+  const [caseOpen, setCaseOpen] = useState(false);
   const [mode, setMode] = useState("replay");
   useEffect(() => {
     let saved: string | null = null;
-    try { saved = localStorage.getItem("coinflip-theme"); } catch { /* storage unavailable */ }
+    try { saved = localStorage.getItem("coinflip-theme"); if (saved === "olive-butter") saved = "butter-iris"; } catch { /* storage unavailable */ }
     const chosen = themes.some(t => t.id === saved) && saved ? saved : "porcelain-signal";
     setTheme(chosen); document.documentElement.dataset['theme'] = chosen;
     document.documentElement.classList.remove("dark");
@@ -29,13 +31,17 @@ export function CommandBar({ trace, busy, note, onLive }: { trace: Trace; busy: 
   return <header className="command-bar">
     <div className="command-inner">
       <a href="#" className="brand-lockup"><span className="brand-mark">c<span>f</span></span><span><strong className="font-display text-xl">coinflip<span className="text-primary">.</span></strong><span className="brand-subtitle">STATISTICAL INVESTIGATION LAB</span></span></a>
-      <div className="flex flex-wrap items-center gap-3">
+      <div className="command-actions flex flex-wrap items-center gap-3">
+        <div className="relative">
+          <Button variant="outline" size="sm" className="case-selector bg-card" aria-label="Case Selector" aria-expanded={caseOpen} disabled={busy} onClick={() => setCaseOpen(!caseOpen)}>{caseBusy ? <Loader2 className="animate-spin" /> : <FlaskIcon />}<span>{BENCHMARK_CASES.find(c => c.id === caseId)?.name}</span><ChevronDown /></Button>
+          {caseOpen && <div className="theme-menu case-menu" role="group" aria-label="Benchmark cases">{BENCHMARK_CASES.map(c => <Button key={c.id} variant="ghost" className="w-full justify-start" aria-pressed={caseId === c.id} onClick={() => { setCaseOpen(false); onCase(c.id); }}>{c.name}{caseId === c.id && <Check className="ml-auto" />}</Button>)}</div>}
+        </div>
         <div className="relative">
           <Button variant="outline" size="sm" className="rounded-full bg-card" aria-expanded={open} onClick={() => setOpen(!open)}><span className="theme-swatch" data-palette={theme} />{themes.find(t => t.id === theme)?.name}<ChevronDown /></Button>
           {open && <div className="theme-menu" role="group" aria-label="Design Studio">{themes.map(t => <Button key={t.id} variant="ghost" className="w-full justify-start" onClick={() => choose(t.id)} aria-pressed={theme === t.id}><span className="theme-swatch" data-palette={t.id} />{t.name}{theme === t.id && <Check className="ml-auto" />}</Button>)}</div>}
         </div>
         <div className="segmented" aria-label="Execution mode"><Button variant="ghost" size="sm" aria-pressed={mode === "replay"} onClick={() => setMode("replay")}><Activity />Replay</Button><Button variant="ghost" size="sm" aria-pressed={mode === "live"} onClick={() => setMode("live")}><Radio />Live sandbox</Button></div>
-        <Button size="sm" onClick={() => { setMode("live"); onLive(); }} disabled={busy}>{busy ? <Loader2 className="animate-spin" /> : <Play />} {busy ? "Running mini-batch…" : "Run mini-batch"}<span className="font-mono opacity-70">30</span></Button>
+        <Button size="sm" onClick={() => { setMode("live"); onLive(); }} disabled={busy || caseBusy || caseId !== "hero"}>{busy ? <Loader2 className="animate-spin" /> : <Play />} {busy ? "Running mini-batch…" : "Run mini-batch"}<span className="font-mono opacity-70">30</span></Button>
       </div>
     </div>
     <div className="telemetry-strip"><span className="telemetry-label"><span className="status-dot" /> PLATFORM TELEMETRY</span><span><Cpu />Nebius Token Factory</span><span>Sandboxes (ConTree)</span><span title="Log Reader">{trace.models_used.bulk_log_reading}<small>LOG READER</small></span><span title="Root-Cause & Patch Engine">{trace.models_used.deep_reasoning}<small>PATCH ENGINE</small></span></div>
@@ -77,9 +83,9 @@ export function Diff({ patch }: { patch: string }) {
   return <div className="ide-diff"><div className="ide-bar"><span className="flex items-center gap-2"><span className="status-dot" />PATCH DIFF <span className="text-muted-foreground">/ unified</span></span><Button size="sm" variant="ghost" onClick={async () => { try { await navigator.clipboard.writeText(patch); setStatus("Copied"); } catch { setStatus("Copy failed"); } setTimeout(() => setStatus("Copy patch"), 2000); }}><Copy />{status}</Button></div><pre className="overflow-x-auto py-3 font-mono text-xs leading-7">{patch.split("\n").map((line, i) => <div key={i} className={`diff-line ${line.startsWith("+++") || line.startsWith("---") ? "text-muted-foreground" : line.startsWith("+") ? "bg-pass/10 text-pass" : line.startsWith("-") ? "bg-fail/10 text-fail" : line.startsWith("@@") ? "text-primary" : "text-foreground"}`}><span className="line-number">{i + 1}</span><span>{line || " "}</span></div>)}</pre></div>;
 }
 
-export function CertificateActions({ trace }: { trace: Trace }) {
+export function CertificateActions({ trace, attestation }: { trace: Trace; attestation: Attestation | null }) {
   const [status, setStatus] = useState("Copy GitHub PR Verification Badge");
-  return <div className="mt-8 flex flex-wrap gap-3 border-t border-border pt-5"><Button variant="outline" onClick={() => { const url = URL.createObjectURL(new Blob([JSON.stringify(trace, null, 2)], { type: "application/json" })); const a = document.createElement("a"); a.href = url; a.download = `coinflip-${trace.trace_id}.json`; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); }}><Download />Export Certificate JSON</Button><Button variant="outline" onClick={async () => { const fix = trace.fix_attempts.find(a => a.verdict === "CERTIFIED"); const bound = fix ? (fix.upper_bound_95_stress * 100).toFixed(2) : "N/A"; const badge = `![Coinflip ${trace.final_verdict}](https://img.shields.io/badge/Coinflip-${encodeURIComponent(trace.final_verdict)}-${trace.final_verdict === "PASS" ? "059669" : "FF4F00"})\n\nTrace: \`${trace.trace_id}\` · 95% stress upper bound: ${bound}% · ${trace.timestamp_utc}`; try { await navigator.clipboard.writeText(badge); setStatus("Verification badge copied"); } catch { setStatus("Copy failed — try again"); } setTimeout(() => setStatus("Copy GitHub PR Verification Badge"), 2500); }}><Copy />{status}</Button></div>;
+  return <div className="mt-8 flex flex-wrap gap-3 border-t border-border pt-5"><Button variant="outline" disabled={!attestation} onClick={() => { const url = URL.createObjectURL(new Blob([JSON.stringify({ ...trace, attestation }, null, 2)], { type: "application/json" })); const a = document.createElement("a"); a.href = url; a.download = `coinflip-${trace.trace_id}.json`; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); }}><Download />Export Certificate JSON</Button><Button variant="outline" onClick={async () => { const fix = trace.fix_attempts.find(a => a.verdict === "CERTIFIED"); const bound = fix ? (fix.upper_bound_95_stress * 100).toFixed(2) : "N/A"; const badge = `${trace.evidence_kind === "illustrative" ? "**Illustrative offline benchmark — not recorded execution evidence.**\n\n" : ""}![Coinflip ${trace.final_verdict}](https://img.shields.io/badge/Coinflip-${encodeURIComponent(trace.final_verdict)}-${trace.final_verdict === "PASS" ? "059669" : "FF4F00"})\n\nTrace: \`${trace.trace_id}\` · 95% stress upper bound: ${bound}% · ${trace.timestamp_utc}`; try { await navigator.clipboard.writeText(badge); setStatus("Verification badge copied"); } catch { setStatus("Copy failed — try again"); } setTimeout(() => setStatus("Copy GitHub PR Verification Badge"), 2500); }}><Copy />{status}</Button></div>;
 }
 
 export function CertificateSeal() {
