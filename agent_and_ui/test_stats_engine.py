@@ -7,6 +7,10 @@ from agent_and_ui.stats_engine import (
     exact_binomial_upper_bound_95,
     evaluate_fix_verdict,
     generate_streak_curve_data,
+    fishers_exact_p_value,
+    relative_risk_and_effect,
+    wald_sprt_sequential_check,
+    enrich_trace_with_advanced_analytics,
 )
 
 
@@ -79,3 +83,311 @@ def test_generate_streak_curve_data():
     assert p5["pass_1_run"] == 0.9500
     assert p5["pass_10_runs"] == pytest.approx(0.5987, abs=1e-4)
     assert p5["pass_100_runs"] == pytest.approx(0.0059, abs=1e-4)
+
+
+# -------------------------------------------------------------------------------
+# Phase 5: Fisher's Exact Test
+# -------------------------------------------------------------------------------
+
+
+class TestFishersExactPValue:
+    def test_significant_perturbation(self):
+        """cpu_heavy_load 28/30 vs baseline 3/30 should yield tiny p-value."""
+        p = fishers_exact_p_value(3, 30, 28, 30)
+        assert p < 0.001
+
+    def test_equal_rates_returns_1(self):
+        """Same failure rate should yield p=1.0."""
+        p = fishers_exact_p_value(5, 100, 5, 100)
+        assert p == 1.0
+
+    def test_zero_perturbation_failures_returns_1(self):
+        p = fishers_exact_p_value(10, 100, 0, 100)
+        assert p == 1.0
+
+    def test_zero_baseline_with_pert_failures(self):
+        p = fishers_exact_p_value(0, 300, 21, 300)
+        assert p < 0.01
+
+    def test_edge_case_zero_runs(self):
+        p = fishers_exact_p_value(0, 0, 5, 100)
+        assert p == 1.0
+
+
+# -------------------------------------------------------------------------------
+# Phase 5: Relative Risk & Effect
+# -------------------------------------------------------------------------------
+
+
+class TestRelativeRiskAndEffect:
+    def test_haldane_correction_with_zero_baseline(self):
+        result = relative_risk_and_effect(0, 300, 21, 300)
+        assert result["relative_risk"] > 1.0
+        assert result["rate_delta"] > 0
+        assert result["p_value"] < 0.01
+        assert result["is_statistically_significant"] is True
+
+    def test_equal_rates_not_significant(self):
+        result = relative_risk_and_effect(5, 100, 5, 100)
+        assert result["is_statistically_significant"] is False
+        assert result["rate_delta"] == 0.0
+
+    def test_high_pert_rate_significant(self):
+        result = relative_risk_and_effect(3, 30, 28, 30)
+        assert result["relative_risk"] >= 1.8
+        assert result["is_statistically_significant"] is True
+
+    def test_returns_all_expected_keys(self):
+        result = relative_risk_and_effect(10, 100, 20, 100)
+        assert "relative_risk" in result
+        assert "rate_delta" in result
+        assert "p_value" in result
+        assert "is_statistically_significant" in result
+
+
+# -------------------------------------------------------------------------------
+# Phase 5: Wald SPRT Sequential Check
+# -------------------------------------------------------------------------------
+
+
+class TestWaldSprtSequentialCheck:
+    def test_early_reject_with_many_failures(self):
+        result = wald_sprt_sequential_check(failures=10, runs_completed=50, target_runs=1000)
+        assert result["status"] == "EARLY_REJECT"
+        assert result["runs_saved"] > 0
+        assert result["compute_saved_pct"] > 0
+
+    def test_certified_complete_zero_failures(self):
+        result = wald_sprt_sequential_check(failures=0, runs_completed=1000, target_runs=1000)
+        assert result["status"] == "CERTIFIED_COMPLETE"
+        assert result["runs_saved"] == 0
+
+    def test_continue_status_early_in_run(self):
+        result = wald_sprt_sequential_check(failures=0, runs_completed=10, target_runs=1000)
+        assert result["status"] == "CONTINUE"
+
+    def test_zero_runs_returns_continue(self):
+        result = wald_sprt_sequential_check(failures=0, runs_completed=0, target_runs=1000)
+        assert result["status"] == "CONTINUE"
+        assert result["runs_completed"] == 0
+
+    def test_clopper_pearson_early_certification(self):
+        """0 failures at 600+ runs should certify early (UCB = 3/600 = 0.005 <= 0.005)."""
+        result = wald_sprt_sequential_check(failures=0, runs_completed=600, target_runs=1000)
+        assert result["status"] == "CERTIFIED_COMPLETE"
+        assert result["runs_saved"] == 400
+        assert result["compute_saved_pct"] == 40.0
+
+    def test_returns_all_expected_keys(self):
+        result = wald_sprt_sequential_check(failures=1, runs_completed=100, target_runs=1000)
+        expected_keys = {
+            "status", "log_likelihood_ratio", "upper_rejection_bound",
+            "lower_acceptance_bound", "runs_completed", "target_runs",
+            "runs_saved", "compute_saved_pct",
+        }
+        assert expected_keys.issubset(set(result.keys()))
+
+
+# -------------------------------------------------------------------------------
+# Phase 5: enrich_trace_with_advanced_analytics
+# -------------------------------------------------------------------------------
+
+
+class TestEnrichTraceWithAdvancedAnalytics:
+    def _sample_trace(self) -> dict:
+        return {
+            "trace_id": "test_trace_123",
+            "timestamp_utc": "2026-10-17T12:00:00Z",
+            "is_recorded_replay": True,
+            "project_name": "test-project",
+            "test_identifier": "test-project::test_worker.py",
+            "stage1_baseline": {
+                "perturbation": "baseline",
+                "label": "Baseline",
+                "total_runs": 300,
+                "failures": 21,
+                "passes": 279,
+                "failure_rate": 0.07,
+                "ci_95_lower": 0.0462,
+                "ci_95_upper": 0.1046,
+                "execution_backend": "local_isolated",
+                "sample_failure_logs": [],
+                "run_dots": [],
+            },
+            "stage2_ledger": [
+                {
+                    "perturbation": "baseline",
+                    "label": "Baseline",
+                    "total_runs": 30,
+                    "failures": 3,
+                    "passes": 27,
+                    "failure_rate": 0.10,
+                    "ci_95_lower": 0.035,
+                    "ci_95_upper": 0.256,
+                    "execution_backend": "local_isolated",
+                    "sample_failure_logs": [],
+                    "run_dots": [],
+                },
+                {
+                    "perturbation": "cpu_heavy_load",
+                    "label": "CPU Heavy Load",
+                    "total_runs": 30,
+                    "failures": 28,
+                    "passes": 2,
+                    "failure_rate": 0.933,
+                    "ci_95_lower": 0.779,
+                    "ci_95_upper": 0.984,
+                    "execution_backend": "local_isolated",
+                    "sample_failure_logs": [],
+                    "run_dots": [],
+                },
+            ],
+            "triggering_stress_condition": "cpu_heavy_load",
+            "fix_attempts": [
+                {
+                    "attempt_number": 1,
+                    "fix_title": "Quick Fix: Raise timeout",
+                    "root_cause_diagnosis": "Increase sleep",
+                    "git_diff_patch": "- time.sleep(0.009)\n+ time.sleep(0.050)",
+                    "normal_cert_result": {
+                        "perturbation": "baseline",
+                        "label": "Normal Cert",
+                        "total_runs": 1000,
+                        "failures": 0,
+                        "passes": 1000,
+                        "failure_rate": 0.0,
+                        "ci_95_lower": 0.0,
+                        "ci_95_upper": 0.0038,
+                        "execution_backend": "local_isolated",
+                        "sample_failure_logs": [],
+                        "run_dots": [],
+                    },
+                    "stress_cert_result": {
+                        "perturbation": "cpu_heavy_load",
+                        "label": "Stress Cert",
+                        "total_runs": 1000,
+                        "failures": 61,
+                        "passes": 939,
+                        "failure_rate": 0.061,
+                        "ci_95_lower": 0.048,
+                        "ci_95_upper": 0.077,
+                        "execution_backend": "local_isolated",
+                        "sample_failure_logs": [],
+                        "run_dots": [],
+                    },
+                    "upper_bound_95_normal": 0.003,
+                    "upper_bound_95_stress": 0.073,
+                    "target_limit": 0.005,
+                    "verdict": "REJECTED",
+                    "rejection_reason": "Stress failures detected",
+                },
+                {
+                    "attempt_number": 2,
+                    "fix_title": "Coinflip Fix: Event sync",
+                    "root_cause_diagnosis": "Replace sleep with wait_for_completion",
+                    "git_diff_patch": "- time.sleep(0.009)\n+ worker.wait_for_completion()",
+                    "normal_cert_result": {
+                        "perturbation": "baseline",
+                        "label": "Normal Cert",
+                        "total_runs": 1000,
+                        "failures": 0,
+                        "passes": 1000,
+                        "failure_rate": 0.0,
+                        "ci_95_lower": 0.0,
+                        "ci_95_upper": 0.003,
+                        "execution_backend": "local_isolated",
+                        "sample_failure_logs": [],
+                        "run_dots": [],
+                    },
+                    "stress_cert_result": {
+                        "perturbation": "cpu_heavy_load",
+                        "label": "Stress Cert",
+                        "total_runs": 1000,
+                        "failures": 0,
+                        "passes": 1000,
+                        "failure_rate": 0.0,
+                        "ci_95_lower": 0.0,
+                        "ci_95_upper": 0.003,
+                        "execution_backend": "local_isolated",
+                        "sample_failure_logs": [],
+                        "run_dots": [],
+                    },
+                    "upper_bound_95_normal": 0.003,
+                    "upper_bound_95_stress": 0.003,
+                    "target_limit": 0.005,
+                    "verdict": "CERTIFIED",
+                    "rejection_reason": None,
+                },
+            ],
+            "final_verdict": "PASS",
+            "models_used": {
+                "bulk_log_reading": "nvidia/Nemotron-3_5-Lightning",
+                "deep_reasoning": "nvidia/Nemotron-3-Ultra-550b-a55b",
+            },
+        }
+
+    def test_adds_causal_analytics_to_ledger(self):
+        trace = self._sample_trace()
+        result = enrich_trace_with_advanced_analytics(trace)
+        for row in result["stage2_ledger"]:
+            assert "causal_analytics" in row
+            ca = row["causal_analytics"]
+            assert "relative_risk" in ca
+            assert "p_value" in ca
+            assert "is_statistically_significant" in ca
+
+    def test_adds_ast_audit_to_fix_attempts(self):
+        trace = self._sample_trace()
+        result = enrich_trace_with_advanced_analytics(trace)
+        for attempt in result["fix_attempts"]:
+            assert "ast_audit" in attempt
+            audit = attempt["ast_audit"]
+            assert "status_code" in audit
+            assert "passed_gatekeeper" in audit
+            assert "synchronization_primitives_detected" in audit
+
+    def test_adds_sprt_telemetry_to_fix_attempts(self):
+        trace = self._sample_trace()
+        result = enrich_trace_with_advanced_analytics(trace)
+        for attempt in result["fix_attempts"]:
+            assert "sprt_telemetry" in attempt
+            sprt = attempt["sprt_telemetry"]
+            assert "decision" in sprt
+            assert "log_likelihood_ratio" in sprt
+
+    def test_adds_race_timeline(self):
+        trace = self._sample_trace()
+        result = enrich_trace_with_advanced_analytics(trace)
+        rt = result["race_timeline"]
+        assert rt["quiet_margin_ms"] > 0
+        assert rt["stress_race_violation_ms"] < 0
+
+    def test_adds_cryptographic_attestation(self):
+        trace = self._sample_trace()
+        result = enrich_trace_with_advanced_analytics(trace)
+        att = result["attestation"]
+        assert att["algorithm"] == "SHA-256-Merkle"
+        assert len(att["experiment_ledger_merkle_root"]) == 64
+        assert len(att["patch_diff_sha256"]) == 64
+        assert att["verified"] is True
+
+    def test_adds_nemotron_reasoning_trace(self):
+        trace = self._sample_trace()
+        result = enrich_trace_with_advanced_analytics(trace)
+        assert "nemotron_reasoning_trace" in result
+        reasoning = result["nemotron_reasoning_trace"]
+        assert "<reasoning>" in reasoning
+        assert "cpu_heavy_load" in reasoning
+
+    def test_adds_streak_curve_data(self):
+        trace = self._sample_trace()
+        result = enrich_trace_with_advanced_analytics(trace)
+        assert "streak_curve_data" in result
+        assert len(result["streak_curve_data"]) == 21
+
+    def test_idempotent_enrichment(self):
+        """Enriching twice should not crash or duplicate data."""
+        trace = self._sample_trace()
+        result1 = enrich_trace_with_advanced_analytics(trace)
+        result2 = enrich_trace_with_advanced_analytics(result1)
+        assert result2["attestation"]["algorithm"] == "SHA-256-Merkle"
