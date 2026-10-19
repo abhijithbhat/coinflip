@@ -48,7 +48,7 @@ class SandboxImageBuilder:
         self,
         snapshots_root: Path | str | None = None,
         mode: Literal["auto", "local_isolated", "nebius_sandbox"] = "auto",
-        nebius_base_image: str = "ubuntu:24.04",
+        nebius_base_image: str = "python:3.12-slim",
     ) -> None:
         self.snapshots_root = (
             Path(snapshots_root).resolve()

@@ -81,7 +81,7 @@ class SandboxBatchRunner:
         test_target: str,
         max_concurrency: int = 45,
         mode: Literal["auto", "local_isolated", "nebius_sandbox"] = "auto",
-        nebius_image_tag: str = "ubuntu:24.04",
+        nebius_image_tag: str = "python:3.12-slim",
     ) -> None:
         self.repo_dir = Path(repo_dir).resolve()
         self.test_target = test_target
@@ -99,13 +99,10 @@ class SandboxBatchRunner:
 
         try:
             from contree_sdk import Contree
-            from contree_sdk.auth import IAMAuth
 
-            auth = IAMAuth(token=api_key, project_id=project_id)
-            async with Contree(auth=auth) as client:
-                info = await client.get_token_info()
-                # Beta sandboxes require 'list' and operation permissions
-                return bool(info.permissions.get("list", False))
+            client = Contree()
+            info = await client.get_token_info()
+            return bool(info.permissions.get("spawn", False) or info.permissions.get("spawn_disposable", False))
         except Exception as e:
             logger.debug("Nebius Sandboxes probe failed: %s", e)
             return False
@@ -319,6 +316,31 @@ class SandboxBatchRunner:
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
 
+    async def _get_or_prepare_image(self, client: Any) -> Any:
+        """Finds or prepares a Nebius image with Python 3.12 and pytest installed."""
+        candidates = [self.nebius_image_tag, "coinflip-runner:latest", "python:3.12-slim"]
+        seen: set[str] = set()
+        for tag in candidates:
+            if tag in seen:
+                continue
+            seen.add(tag)
+            try:
+                img = await client.images.use(tag)
+                chk = await img.run("python3", args=["-m", "pytest", "--version"], timeout=15)
+                if chk.exit_code == 0:
+                    return img
+                # If pytest is not preinstalled, install it into this layer
+                logger.info("Installing pytest into Nebius image '%s'...", tag)
+                baked = await img.run("pip", args=["install", "--no-cache-dir", "pytest"], disposable=False)
+                try:
+                    tagged = await baked.tag_as("coinflip-runner:latest")
+                    return tagged
+                except Exception:
+                    return baked
+            except Exception as e:
+                logger.debug("Image candidate '%s' check failed: %s", tag, e)
+        raise RuntimeError(f"Could not initialize Nebius Sandbox image with pytest for '{self.nebius_image_tag}'")
+
     async def _run_batch_nebius(
         self,
         perturbation: PerturbationType,
@@ -326,88 +348,73 @@ class SandboxBatchRunner:
     ) -> list[SingleRunResult]:
         """Runs the batch inside Nebius Sandboxes microVMs via contree-sdk."""
         from contree_sdk import Contree
-        from contree_sdk.auth import IAMAuth
 
-        api_key = os.getenv("NEBIUS_API_KEY", "")
-        project_id = os.getenv("NEBIUS_PROJECT_ID", "")
-        auth = IAMAuth(token=api_key, project_id=project_id)
+        client = Contree()
+        base_img = await self._get_or_prepare_image(client)
+
+        # Upload repository files and hooks into /workspace
+        files_to_upload: dict[str, Path] = {}
+        if self.repo_dir.exists():
+            for root, _, files in os.walk(self.repo_dir):
+                for f in files:
+                    if f.endswith((".py", ".json", ".txt", ".cfg", ".ini", ".toml")):
+                        local_p = Path(root) / f
+                        rel_p = local_p.relative_to(self.repo_dir)
+                        files_to_upload[f"/workspace/{rel_p}"] = local_p
+
+        if HOOKS_MODULE_PATH.exists():
+            files_to_upload["/workspace/_pytest_hooks.py"] = HOOKS_MODULE_PATH
+
+        # Bake workspace files into derived image once so runs execute with zero per-run upload overhead
+        workspace_img = await base_img.apply_files(files=files_to_upload)
+
+        # Determine normalized test target within /workspace
+        test_target_arg = self.test_target
+        try:
+            p = Path(self.test_target.split("::")[0])
+            if p.is_absolute() and self.repo_dir in p.parents:
+                rel = p.relative_to(self.repo_dir)
+                test_target_arg = str(rel) + (("::" + self.test_target.split("::", 1)[1]) if "::" in self.test_target else "")
+        except Exception:
+            pass
 
         semaphore = asyncio.Semaphore(min(self.max_concurrency, 45))
-        results: list[SingleRunResult] = []
 
-        async with Contree(auth=auth) as client:
-            image = await client.images.use(f"tag:{self.nebius_image_tag}")
+        async def _run_single_sandbox(run_id: int) -> SingleRunResult:
+            ctx = build_perturbation_context(perturbation, run_id=run_id)
+            env = {"PYTHONPATH": "/workspace"}
+            env.update(ctx.env_vars)
 
-            if num_runs > 12:
-                worker_count = min(self.max_concurrency, 20)
-                chunks: list[list[int]] = [[] for _ in range(worker_count)]
-                for i in range(num_runs):
-                    chunks[i % worker_count].append(i)
-                active_chunks = [c for c in chunks if c]
+            cmd_args = [test_target_arg, "-q", "--tb=short", "-p", "_pytest_hooks", *ctx.pytest_args]
 
-                async def _run_chunk_sandbox(chunk_run_ids: list[int]) -> list[SingleRunResult]:
-                    cmd = (
-                        f"python -m sandbox_engine._worker_pool "
-                        f"--temp-dir . "
-                        f"--test-target {self.test_target} "
-                        f"--perturbation {perturbation.value} "
-                        f"--run-ids {','.join(map(str, chunk_run_ids))}"
-                    )
-                    async with semaphore:
-                        run_inst = image.run(shell=cmd, disposable=True)
-                        res = await run_inst
-                        raw_text = ((res.stdout or "") + "\n" + (res.stderr or "")).strip()
-                        try:
-                            json_start = raw_text.find("[")
-                            json_end = raw_text.rfind("]")
-                            if json_start != -1 and json_end != -1:
-                                items = json.loads(raw_text[json_start : json_end + 1])
-                                return [SingleRunResult.model_validate(item) for item in items]
-                        except Exception as e:
-                            logger.warning("Failed to parse Nebius chunk worker JSON: %s", e)
-                        return [
-                            SingleRunResult(run_id=rid, passed=(res.exit_code == 0), exit_code=res.exit_code, duration_ms=0.0)
-                            for rid in chunk_run_ids
-                        ]
+            async with semaphore:
+                start_t = time.perf_counter()
+                res = await workspace_img.run(
+                    "pytest",
+                    args=cmd_args,
+                    cwd="/workspace",
+                    env=env,
+                    disposable=True,
+                )
+                duration_ms = round((time.perf_counter() - start_t) * 1000.0, 2)
+                passed = (res.exit_code == 0)
+                error_snippet = None
+                if not passed:
+                    out = (res.stdout or "") + "\n" + (res.stderr or "")
+                    lines = [line for line in out.strip().splitlines() if line.strip()]
+                    error_snippet = "\n".join(lines[-15:]) if lines else "Process exited with non-zero status"
 
-                tasks = [_run_chunk_sandbox(chunk) for chunk in active_chunks]
-                chunk_results = await asyncio.gather(*tasks)
-                all_results: list[SingleRunResult] = []
-                for cr in chunk_results:
-                    all_results.extend(cr)
-                all_results.sort(key=lambda r: r.run_id)
-                return all_results
+                return SingleRunResult(
+                    run_id=run_id,
+                    passed=passed,
+                    exit_code=res.exit_code,
+                    duration_ms=duration_ms,
+                    error_snippet=error_snippet,
+                )
 
-            async def _run_single_sandbox(run_id: int) -> SingleRunResult:
-                ctx = build_perturbation_context(perturbation, run_id=run_id)
-                cmd = f"pytest {self.test_target} -q --tb=short -p _pytest_hooks"
-
-                async with semaphore:
-                    start_t = time.perf_counter()
-                    run_inst = image.run(
-                        shell=cmd,
-                        env=ctx.env_vars,
-                        disposable=True,
-                    )
-                    res = await run_inst
-                    duration_ms = round((time.perf_counter() - start_t) * 1000.0, 2)
-                    passed = (res.exit_code == 0)
-                    error_snippet = None
-                    if not passed:
-                        out = (res.stdout or "") + "\n" + (res.stderr or "")
-                        error_snippet = "\n".join(out.strip().splitlines()[-15:])
-
-                    return SingleRunResult(
-                        run_id=run_id,
-                        passed=passed,
-                        exit_code=res.exit_code,
-                        duration_ms=duration_ms,
-                        error_snippet=error_snippet,
-                    )
-
-            tasks = [_run_single_sandbox(i) for i in range(num_runs)]
-            results = list(await asyncio.gather(*tasks))
-
+        tasks = [_run_single_sandbox(i) for i in range(num_runs)]
+        results = list(await asyncio.gather(*tasks))
+        results.sort(key=lambda r: r.run_id)
         return results
 
     async def run_batch(
