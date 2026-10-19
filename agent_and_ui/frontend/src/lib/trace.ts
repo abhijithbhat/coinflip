@@ -256,13 +256,13 @@ function normalize(t: Trace): Trace {
   return t;
 }
 
-export async function runLive(): Promise<{ ok: boolean; data?: Partial<Trace>; error?: string }> {
+export async function runLive(caseId?: CaseId): Promise<{ ok: boolean; data?: Partial<Trace>; error?: string }> {
   for (const url of ["/api/run-live", "http://localhost:8000/api/run-live"]) {
     try {
       const r = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ runs_per_condition: 30 }),
+        body: JSON.stringify({ runs_per_condition: 30, case_id: caseId || "hero" }),
       });
       if (!r.ok) continue;
       return { ok: true, data: await r.json() };

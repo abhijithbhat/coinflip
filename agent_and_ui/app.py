@@ -22,7 +22,7 @@ import time
 from pathlib import Path
 from typing import Any, AsyncGenerator, Optional
 
-from fastapi import Body, FastAPI, HTTPException
+from fastapi import Body, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -87,6 +87,10 @@ BUILTIN_PROFILES: dict[str, dict[str, Any]] = {
 class RunLiveRequest(BaseModel):
     """Optional payload configuration for POST /api/run-live."""
 
+    case_id: str = Field(
+        default="hero",
+        description="Target benchmark case: hero, order_pollution, seed_sampling, or clock_expiry",
+    )
     runs_per_condition: int = Field(
         default=30,
         description="Number of runs per condition, clamped between 10 and 45 (respecting sandbox quota)",
@@ -119,6 +123,35 @@ class RunLiveRequest(BaseModel):
         default="test_worker.py",
         description="Target test file or identifier relative to project root",
     )
+
+
+# ---------------------------------------------------------------------------
+# Benchmark Case Execution Registry
+# ---------------------------------------------------------------------------
+CASE_BENCHMARK_CONFIG: dict[str, dict[str, Any]] = {
+    "hero": {
+        "repo_dir": BASE_DIR / "benchmarks" / "hero_worker_race",
+        "test_target": "test_worker.py",
+        "project_name": "example-service",
+    },
+    "order_pollution": {
+        "repo_dir": BASE_DIR / "benchmarks" / "real_world_cases" / "case_01_test_order_pollution",
+        "test_target": "test_config_cache.py",
+        "project_name": "config-service",
+    },
+    "seed_sampling": {
+        "repo_dir": BASE_DIR / "benchmarks" / "real_world_cases" / "case_02_unpinned_seed_sampling",
+        "test_target": "test_sampler.py",
+        "project_name": "sampler-service",
+    },
+    "clock_expiry": {
+        "repo_dir": BASE_DIR / "benchmarks" / "real_world_cases" / "case_03_token_expiry_clock",
+        "test_target": "test_token_ttl.py",
+        "project_name": "auth-service",
+    },
+}
+
+LIVE_RUN_LOCK = asyncio.Semaphore(1)
 
 
 def _load_recorded_trace(name: str) -> dict[str, Any] | None:
@@ -280,9 +313,8 @@ async def run_live(
     """Runs live flaky test investigation via CoinflipOrchestrator with safe subprocess fallback.
 
     Uses a small batch size (default 30 runs/condition, clamped between 10 and 45).
-    If the local Windows worker subprocess fails or throws an exception,
-    gracefully catches the error and falls back to returning the enriched hero trace
-    with a clear explanation note so the UI never crashes.
+    Safely executes the chosen benchmark case under an asyncio lock to protect resources.
+    If the worker subprocess fails, falls back gracefully to pre-recorded traces.
     """
     req = payload or RunLiveRequest()
 
@@ -291,50 +323,55 @@ async def run_live(
     stage2_runs = req.stage2_runs if req.stage2_runs is not None else clamped_runs
     stage4_runs = req.stage4_cert_runs if req.stage4_cert_runs is not None else clamped_runs
 
-    try:
-        from sandbox_engine.orchestrator import CoinflipOrchestrator
+    case_key = req.case_id if req.case_id in CASE_BENCHMARK_CONFIG else "hero"
+    case_cfg = CASE_BENCHMARK_CONFIG[case_key]
 
-        benchmarks_dir = BASE_DIR / "benchmarks"
-        project_bench_dir = benchmarks_dir / req.project_name
-        target_repo = project_bench_dir if project_bench_dir.exists() else benchmarks_dir
+    async with LIVE_RUN_LOCK:
+        try:
+            from sandbox_engine.orchestrator import CoinflipOrchestrator
 
-        orchestrator = CoinflipOrchestrator(
-            repo_dir=target_repo,
-            test_target=req.test_target,
-            project_name=req.project_name,
-            max_concurrency=clamped_runs,
-        )
+            orchestrator = CoinflipOrchestrator(
+                repo_dir=case_cfg["repo_dir"],
+                test_target=case_cfg["test_target"],
+                project_name=case_cfg["project_name"],
+                max_concurrency=clamped_runs,
+                mode="local_isolated",
+                execution_backend="local_isolated",
+            )
 
-        trace = await orchestrator.run(
-            stage1_runs=stage1_runs,
-            stage2_runs=stage2_runs,
-            stage4_cert_runs=stage4_runs,
-            target_limit=req.target_limit,
-            demonstrate_rejection_catch=req.demonstrate_rejection_catch,
-        )
+            trace = await orchestrator.run(
+                stage1_runs=stage1_runs,
+                stage2_runs=stage2_runs,
+                stage4_cert_runs=stage4_runs,
+                target_limit=req.target_limit,
+                demonstrate_rejection_catch=req.demonstrate_rejection_catch,
+                fast_live_mode=True,
+            )
 
-        data = trace.model_dump() if hasattr(trace, "model_dump") else trace.dict()
-        data["streak_curve_data"] = generate_streak_curve_data()
-        data["execution_mode_badge"] = "Live Execution (Coinflip Engine)"
-        data["is_fallback"] = False
-        return enrich_trace_with_advanced_analytics(data)
+            data = trace.model_dump() if hasattr(trace, "model_dump") else trace.dict()
+            data["streak_curve_data"] = generate_streak_curve_data()
+            data["execution_mode_badge"] = "Live Execution (Coinflip Engine)"
+            data["is_fallback"] = False
+            return enrich_trace_with_advanced_analytics(data)
 
-    except Exception as exc:
-        logger.warning(
-            "Live execution subprocess failed (%s: %s). Falling back to hero trace.",
-            type(exc).__name__,
-            exc,
-        )
-        hero = load_hero_trace()
-        hero["is_fallback"] = True
-        hero["fallback_note"] = (
-            f"Live run subprocess encountered an issue ({type(exc).__name__}: {exc}). "
-            "Gracefully fell back to pre-recorded Hero Trace so UI inspection is uninterrupted."
-        )
-        hero["execution_mode_badge"] = (
-            "Replaying real recorded execution (2,000+ certification runs + NVIDIA Nemotron 3 Ultra) [Subprocess Fallback]"
-        )
-        return hero
+        except Exception as exc:
+            logger.warning(
+                "Live execution subprocess failed (%s: %s). Falling back to recorded trace.",
+                type(exc).__name__,
+                exc,
+            )
+            recorded = _load_recorded_trace(case_key)
+            if recorded is None:
+                recorded = load_hero_trace()
+            recorded["is_fallback"] = True
+            recorded["fallback_note"] = (
+                f"Live run subprocess encountered an issue ({type(exc).__name__}: {exc}). "
+                f"Gracefully fell back to pre-recorded {case_key} trace so UI inspection is uninterrupted."
+            )
+            recorded["execution_mode_badge"] = (
+                f"Replaying real recorded execution (2,000+ certification runs + NVIDIA Nemotron 3 Ultra) [Subprocess Fallback]"
+            )
+            return enrich_trace_with_advanced_analytics(recorded)
 
 
 # ---------------------------------------------------------------------------
@@ -421,10 +458,73 @@ async def _sse_event_generator() -> AsyncGenerator[str, None]:
 
 
 @app.get("/api/stream-live")
-async def stream_live() -> StreamingResponse:
+async def stream_live(
+    case_id: Optional[str] = Query(default=None, description="Benchmark case ID (e.g. hero, order_pollution, seed_sampling, clock_expiry)"),
+    runs: Optional[int] = Query(default=None, description="Number of runs per condition"),
+) -> StreamingResponse:
     """SSE StreamingResponse emitting staged pipeline events for real-time UI updates."""
+    if case_id is None and runs is None:
+        # Fast event replay for unit tests & demo mode
+        return StreamingResponse(
+            _sse_event_generator(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+            },
+        )
+
+    case_key = case_id if case_id and case_id in CASE_BENCHMARK_CONFIG else "hero"
+    case_cfg = CASE_BENCHMARK_CONFIG[case_key]
+    clamped_runs = max(10, min(45, runs if runs is not None else 30))
+
+    async def _live_stream_generator() -> AsyncGenerator[str, None]:
+        queue: asyncio.Queue[tuple[str, dict[str, Any]] | None] = asyncio.Queue()
+
+        def _enqueue(evt: str, data: dict[str, Any]) -> None:
+            queue.put_nowait((evt, data))
+
+        async def _run_pipeline() -> None:
+            async with LIVE_RUN_LOCK:
+                try:
+                    from sandbox_engine.orchestrator import CoinflipOrchestrator
+
+                    orchestrator = CoinflipOrchestrator(
+                        repo_dir=case_cfg["repo_dir"],
+                        test_target=case_cfg["test_target"],
+                        project_name=case_cfg["project_name"],
+                        max_concurrency=clamped_runs,
+                        mode="local_isolated",
+                        execution_backend="local_isolated",
+                    )
+                    await orchestrator.run_full_pipeline(
+                        stage1_runs=clamped_runs,
+                        stage2_runs=clamped_runs,
+                        stage4_cert_runs=clamped_runs,
+                        fast_live_mode=True,
+                        on_stage_event=_enqueue,
+                    )
+                except Exception as exc:
+                    logger.warning("Live stream failed (%s: %s)", type(exc).__name__, exc)
+                    queue.put_nowait(("error", {"message": f"{type(exc).__name__}: {exc}"}))
+                finally:
+                    queue.put_nowait(None)
+
+        task = asyncio.create_task(_run_pipeline())
+        try:
+            while True:
+                item = await queue.get()
+                if item is None:
+                    break
+                evt, payload = item
+                yield f"event: {evt}\ndata: {json.dumps(payload)}\n\n"
+        finally:
+            if not task.done():
+                task.cancel()
+
     return StreamingResponse(
-        _sse_event_generator(),
+        _live_stream_generator(),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",

@@ -40,11 +40,38 @@ export function CommandBar({ trace, busy, note, onLive, caseId, caseBusy, onCase
           <Button variant="outline" size="sm" className="rounded-full bg-card" aria-expanded={open} onClick={() => setOpen(!open)}><span className="theme-swatch" data-palette={theme} />{themes.find(t => t.id === theme)?.name}<ChevronDown /></Button>
           {open && <div className="theme-menu" role="group" aria-label="Design Studio">{themes.map(t => <Button key={t.id} variant="ghost" className="w-full justify-start" onClick={() => choose(t.id)} aria-pressed={theme === t.id}><span className="theme-swatch" data-palette={t.id} />{t.name}{theme === t.id && <Check className="ml-auto" />}</Button>)}</div>}
         </div>
-        <div className="segmented" aria-label="Execution mode"><Button variant="ghost" size="sm" aria-pressed={mode === "replay"} onClick={() => setMode("replay")}><Activity />Replay</Button><Button variant="ghost" size="sm" aria-pressed={mode === "live"} onClick={() => setMode("live")}><Radio />Live sandbox</Button></div>
-        <Button size="sm" onClick={() => { setMode("live"); onLive(); }} disabled={busy || caseBusy || caseId !== "hero"}>{busy ? <Loader2 className="animate-spin" /> : <Play />} {busy ? "Running mini-batch…" : "Run mini-batch"}<span className="font-mono opacity-70">30</span></Button>
+        <div className="segmented" aria-label="Execution mode">
+          <Button variant="ghost" size="sm" aria-pressed={mode === "replay"} onClick={() => setMode("replay")}><Activity />Replay</Button>
+          <Button variant="ghost" size="sm" aria-pressed={mode === "live"} onClick={() => setMode("live")}><Radio />Live sandbox</Button>
+        </div>
+        {mode === "replay" ? (
+          <div className="flex items-center gap-2">
+            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-mono font-medium bg-secondary text-secondary-foreground border border-border">
+              <span className="status-dot" />
+              Attested 2,000-Run Corpus
+            </span>
+            <Button variant="outline" size="sm" onClick={() => setMode("live")}>
+              Switch to Live Sandbox →
+            </Button>
+          </div>
+        ) : (
+          <Button size="sm" onClick={onLive} disabled={busy || caseBusy}>
+            {busy ? <Loader2 className="animate-spin" /> : <Play />}
+            {busy ? "Running live mini-batch…" : "▶ Run Live Mini-Batch (30 runs)"}
+          </Button>
+        )}
       </div>
     </div>
     <div className="telemetry-strip"><span className="telemetry-label"><span className="status-dot" /> PLATFORM TELEMETRY</span><span><Cpu />Nebius Token Factory</span><span>Sandboxes (ConTree)</span><span title="Log Reader">{trace.models_used.bulk_log_reading}<small>LOG READER</small></span><span title="Root-Cause & Patch Engine">{trace.models_used.deep_reasoning}<small>PATCH ENGINE</small></span></div>
+    {busy && (
+      <div className="live-progress-bar bg-primary/10 border-t border-primary/20 px-6 py-1.5 flex items-center justify-between text-xs font-mono text-primary animate-pulse">
+        <span className="flex items-center gap-2">
+          <Loader2 className="animate-spin w-3.5 h-3.5" />
+          <span>Executing Live Sandbox ({BENCHMARK_CASES.find(c => c.id === caseId)?.name}): Measuring baseline &amp; running stress perturbations...</span>
+        </span>
+        <span className="opacity-75 font-mono">~10-12s</span>
+      </div>
+    )}
     {busy && <div className="live-progress" />}
     {note && <p role="status" className="border-t border-border px-6 py-2 font-mono text-xs text-stress">{note}</p>}
   </header>;

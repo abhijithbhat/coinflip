@@ -65,10 +65,10 @@ function Dashboard() {
 
   const onLive = async () => {
     setLive({ busy: true });
-    const r = await runLive();
+    const r = await runLive(caseId);
     if (r.ok && r.data) {
       if (r.data.stage2_ledger) setTrace((t) => ({ ...t, ...r.data } as Trace));
-      setLive({ busy: false, note: r.data.is_fallback ? r.data.fallback_note ?? "Backend returned fallback data." : "Live mini-batch complete (30 runs/condition)." });
+      setLive({ busy: false, note: r.data.is_fallback ? r.data.fallback_note ?? "Backend returned fallback data." : `Live mini-batch complete (30 runs/condition for ${caseId}).` });
     } else setLive({ busy: false, note: r.error });
   };
 

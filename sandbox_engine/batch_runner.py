@@ -40,7 +40,7 @@ class BackgroundCpuStressor:
     """Spawns background CPU busy-loop worker processes to saturate CPU cores during stress runs."""
 
     def __init__(self, num_workers: int | None = None) -> None:
-        self.num_workers = num_workers or max(2, min(4, os.cpu_count() or 2))
+        self.num_workers = num_workers or min(2, max(1, (os.cpu_count() or 2) // 4))
         self.processes: list[subprocess.Popen[bytes]] = []
 
     def __enter__(self) -> BackgroundCpuStressor:
@@ -254,9 +254,12 @@ class SandboxBatchRunner:
 
             ctx = build_perturbation_context(perturbation, run_id=0)
 
-            # For batches larger than 12 runs, use high-throughput worker pool
-            if num_runs > 12:
-                worker_count = min(self.max_concurrency, max(4, os.cpu_count() or 4))
+            # Use high-throughput worker pool for fast isolated execution
+            if num_runs >= 1:
+                if perturbation in (PerturbationType.CPU_HEAVY_LOAD, PerturbationType.CPU_HALF_CORES):
+                    worker_count = min(self.max_concurrency, max(4, os.cpu_count() or 4))
+                else:
+                    worker_count = min(2, max(1, num_runs // 10))
                 # Partition run_ids across worker processes
                 chunks: list[list[int]] = [[] for _ in range(worker_count)]
                 for i in range(num_runs):
@@ -285,7 +288,10 @@ class SandboxBatchRunner:
                 return all_results
 
             # Small batches (<= 12 runs): standard individual subprocess execution
-            local_concurrency = min(self.max_concurrency, 4)
+            if perturbation in (PerturbationType.CPU_HEAVY_LOAD, PerturbationType.CPU_HALF_CORES):
+                local_concurrency = min(self.max_concurrency, 4)
+            else:
+                local_concurrency = min(2, max(1, num_runs // 10))
             semaphore = asyncio.Semaphore(local_concurrency)
 
             if ctx.needs_external_cpu_stress:

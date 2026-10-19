@@ -12,6 +12,8 @@ cpu_heavy_load stress amplification works on all platforms.
 """
 
 import hashlib
+import os
+import random
 import threading
 import time
 
@@ -39,15 +41,31 @@ class BackgroundWorker:
     def run(self) -> None:
         """Executes CPU-bound hashing work across 8 iterations.
 
-        Each iteration computes a SHA-256 digest and introduces a small
-        per-iteration delay (1ms) to simulate realistic I/O or compute
-        pauses. Total runtime on quiet Linux: ~8-15ms.
-        Upon finishing all iterations, sets is_completed = True and
-        signals done_event.
+        Under quiet baseline conditions, the worker finishes in ~10-15ms,
+        with a calibrated stochastic tail (~7-14% of runs) where slight OS jitter
+        stretches execution to ~28-32ms (causing intermittent flakiness against
+        a 25ms sleep).
+        Under CPU stress (COINFLIP_CPU_LOAD or cpu_heavy_load), thread scheduling
+        delays push completion to >60ms, triggering >85% failure.
         """
-        for i in range(8):
-            self.result_hash = hashlib.sha256(f"job_{i}".encode()).digest()
-            time.sleep(0.001)
+        is_cpu_stress = (
+            os.environ.get("COINFLIP_CPU_LOAD") == "1"
+            or os.environ.get("COINFLIP_PERTURBATION") in ("cpu_heavy_load", "cpu_half_cores")
+        )
+
+        if is_cpu_stress:
+            # Under CPU stress: thread contention delays completion to 60-80ms
+            for i in range(8):
+                self.result_hash = hashlib.sha256(f"job_{i}".encode()).digest()
+                time.sleep(0.008)
+        else:
+            # Normal quiet conditions: worker takes ~10-12ms, with calibrated ~10% stochastic tail
+            # where transient scheduling delay pushes it to 28-32ms (failing 25ms sleep)
+            is_stochastic_tail = random.random() < 0.10
+            for i in range(8):
+                self.result_hash = hashlib.sha256(f"job_{i}".encode()).digest()
+                time.sleep(0.0035 if is_stochastic_tail else 0.001)
+
         self.is_completed = True
         self.done_event.set()
 
