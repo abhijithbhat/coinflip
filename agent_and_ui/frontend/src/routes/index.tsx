@@ -5,8 +5,9 @@ import {
   ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
 import { Activity, BadgeCheck, Brain, Cpu, FlaskConical, Loader2, Play, ScrollText, ShieldAlert, ShieldCheck, XCircle } from "lucide-react";
-import { CommandBar, Pipeline, Dots, Diff, CertificateActions, CertificateSeal } from "@/components/lab-controls";
-import { FALLBACK_TRACE, fetchTrace, makeDots, pct, runLive, type Trace } from "@/lib/trace";
+import { CommandBar, Pipeline, Dots, Diff, CertificateSeal } from "@/components/lab-controls";
+import { CausalLedger, RaceProfiler, GatekeeperAudit, AttestationBlock, useAttestation } from "@/components/scientific-telemetry";
+import { FALLBACK_TRACE, fetchTrace, fetchCaseTrace, fallbackForCase, makeDots, pct, runLive, type CaseId, type Trace } from "@/lib/trace";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -48,9 +49,19 @@ function Dashboard() {
   const [source, setSource] = useState<"loading" | "api" | "fallback">("loading");
   const [live, setLive] = useState<{ busy: boolean; note?: string | undefined }>({ busy: false });
 
+  const [caseId, setCaseId] = useState<CaseId>("hero");
+  const attestation = useAttestation(trace);
   useEffect(() => {
-    fetchTrace().then(({ trace, source }) => { setTrace(trace); setSource(source); });
-  }, []);
+    let active = true;
+    const ctrl = new AbortController();
+    setSource("loading");
+    setTrace(fallbackForCase(caseId));
+    setLive({ busy: false });
+    const request = fetchCaseTrace(caseId, ctrl.signal).then(result => caseId === "hero" && result.source === "fallback" && !ctrl.signal.aborted ? fetchTrace() : result);
+    request.then(result => { if (active) { setTrace(result.trace); setSource(result.source); } });
+    return () => { active = false; ctrl.abort(); };
+  }, [caseId]);
+  const onCase = (id: CaseId) => { if (!live.busy) setCaseId(id); };
 
   const onLive = async () => {
     setLive({ busy: true });
@@ -82,27 +93,49 @@ function Dashboard() {
 
   return (
     <>
-      <CommandBar trace={trace} busy={live.busy} note={live.note} onLive={onLive} />
+      <CommandBar trace={trace} busy={live.busy} note={live.note} onLive={onLive} caseId={caseId} caseBusy={source === "loading"} onCase={onCase} />
       <main className="lab-main">
       <header className="lab-hero">
         <div className="hero-topline"><span className="font-mono text-xs text-primary">COINFLIP / RESEARCH CONSOLE</span><span className="font-mono text-xs text-muted-foreground">NEBIUS × NVIDIA · 2026</span></div>
         <div className="hero-title-row"><div><h1 className="font-display">Proof. Not probability.</h1><p className="hero-subtitle">Statistical Flaky-Test Investigator &amp; Verifier</p></div><div className="hero-verdict"><span className="font-mono text-[10px] text-muted-foreground">FINAL VERDICT</span><strong className="font-mono text-pass">{trace.final_verdict}<BadgeCheck /></strong><span className="font-mono text-xs text-muted-foreground">95% confidence</span></div></div>
-        <div className="hero-metadata"><span className="replay-badge"><Activity className="h-3 w-3" />{trace.execution_mode_badge}</span><span className="font-mono text-[10px] text-muted-foreground">{source === "loading" ? "CONNECTING…" : source === "api" ? "API TRACE" : "BUILT-IN RECORDED TRACE"}</span></div>
+        <div className="hero-metadata"><span className="replay-badge"><Activity className="h-3 w-3" />{trace.execution_mode_badge}</span><span className="font-mono text-[10px] text-muted-foreground">{source === "loading" ? "CONNECTING…" : source === "api" ? "API TRACE" : trace.evidence_kind === "illustrative" ? "ILLUSTRATIVE OFFLINE FIXTURE" : "BUILT-IN RECORDED TRACE"}</span></div>
         <dl className="hero-trace"><div><dt>PROJECT</dt><dd>{trace.project_name}</dd></div><div><dt>TEST IDENTIFIER</dt><dd className="break-all">{trace.test_identifier}</dd></div><div><dt>TRACE</dt><dd>{trace.trace_id}</dd></div></dl>
       </header>
       <Pipeline />
       {/* 2. Dot matrix */}
       <Panel n="01" title="The Coin-Toss Dot Matrix" icon={<FlaskConical className="h-4 w-4" />}>
-        <div className="grid gap-5 lg:grid-cols-3">
+        <div className="grid gap-5 lg:grid-cols-3 items-start">
           {[
-            { t: "Original Test", v: "BROKEN" as const, n: base.run_dots, s: origStressDots },
-            { t: "Attempt 1 · Naive Quick Fix", v: "REJECTED" as const, n: a1.normal_cert_result.run_dots, s: a1.stress_cert_result.run_dots },
-            { t: "Attempt 2 · Coinflip Fix", v: "CERTIFIED" as const, n: a2.normal_cert_result.run_dots, s: a2.stress_cert_result.run_dots },
+            {
+              t: "Original Test",
+              v: "BROKEN" as const,
+              n: base.run_dots,
+              s: origStressDots,
+              summary: `${base.failures}/${base.total_runs} quiet (${pct(base.failure_rate)}) · ${stressCond.failures}/${stressCond.total_runs} stress (${pct(stressCond.failure_rate)})`,
+            },
+            {
+              t: "Attempt 1 · Naive Quick Fix",
+              v: "REJECTED" as const,
+              n: a1.normal_cert_result.run_dots,
+              s: a1.stress_cert_result.run_dots,
+              summary: `${a1.normal_cert_result.failures}/${fmtN(a1.normal_cert_result.total_runs)} quiet · ${a1.stress_cert_result.failures}/${fmtN(a1.stress_cert_result.total_runs)} stress (${pct(a1.stress_cert_result.failure_rate)})`,
+            },
+            {
+              t: "Attempt 2 · Coinflip Fix",
+              v: "CERTIFIED" as const,
+              n: a2.normal_cert_result.run_dots,
+              s: a2.stress_cert_result.run_dots,
+              summary: `0/${fmtN(a2.normal_cert_result.total_runs)} quiet · 0/${fmtN(a2.stress_cert_result.total_runs)} stress (Upper bound < ${pct(a2.upper_bound_95_stress, 2)})`,
+            },
           ].map((x) => (
-            <div key={x.t} className="matrix-item space-y-5">
+            <div key={x.t} className="matrix-item space-y-4">
               <div className="flex items-center justify-between"><h3 className="text-sm font-semibold">{x.t}</h3><Verdict v={x.v} /></div>
               <Dots dots={x.n} label="Quiet Baseline" />
-              <Dots dots={x.s} label="Heavy CPU Load" />
+              <Dots dots={x.s} label={stressCond.label} />
+              <div className="border-t border-border/80 pt-3 font-mono text-[11px] text-muted-foreground flex justify-between items-center">
+                <span>Summary:</span>
+                <span className="font-semibold text-foreground/90">{x.summary}</span>
+              </div>
             </div>
           ))}
         </div>
@@ -111,33 +144,57 @@ function Dashboard() {
       {/* 3. Ledger */}
       <Panel n="02" title="Stage 2 · Experiment Ledger" icon={<Cpu className="h-4 w-4" />}>
         <div className="grid gap-5 lg:grid-cols-5">
-          <div className="h-[380px] lg:col-span-3">
-            <ResponsiveContainer>
-              <BarChart data={ledgerData} layout="vertical" margin={{ left: 20, right: 30 }}>
-                <CartesianGrid stroke={C.grid} strokeDasharray="3 3" horizontal={false} />
-                <XAxis
-                  type="number"
-                  stroke={C.muted}
-                  fontSize={11}
-                  domain={[0, Math.max(70, ...ledgerData.map((d) => Math.ceil(d.hi * 100)))]}
-                  tickFormatter={(v: number | string) => {
-                    const n = Number(v);
-                    return isNaN(n) ? String(v) : `${n.toFixed(n % 1 === 0 ? 0 : 1)}%`;
-                  }}
-                />
-                <YAxis type="category" dataKey="label" width={170} stroke={C.muted} fontSize={11} />
-                <Tooltip {...tip} cursor={{ fill: "var(--accent)" }} formatter={(v: number, _n, p) => [`${typeof v === "number" ? v.toFixed(1) : v}% (${p.payload.f}/${p.payload.n}) · CI ${pct(p.payload.lo, 2)}–${pct(p.payload.hi, 2)}`, "failure rate"]} />
-                <Bar dataKey="rate" radius={[0, 4, 4, 0]}>
-                  {ledgerData.map((d) => (
-                    <Cell key={d.key} fill={d.key === trace.triggering_stress_condition ? C.fail : d.key.startsWith("cpu") ? C.stress : C.normal} />
+          <div className="space-y-4 lg:col-span-3">
+            <div className="h-[380px]">
+              <ResponsiveContainer>
+                <BarChart data={ledgerData} layout="vertical" margin={{ left: 20, right: 30 }}>
+                  <CartesianGrid stroke={C.grid} strokeDasharray="3 3" horizontal={false} />
+                  <XAxis type="number" unit="%" stroke={C.muted} fontSize={11} domain={[0, Math.max(70, ...ledgerData.map(d => Math.ceil(d.hi * 100)))]} />
+                  <YAxis type="category" dataKey="label" width={195} stroke={C.muted} fontSize={11} />
+                  <Tooltip {...tip} cursor={{ fill: "var(--accent)" }} formatter={(v: number, _n, p) => [`${v}% (${p.payload.f}/${p.payload.n}) · CI ${pct(p.payload.lo, 2)}–${pct(p.payload.hi, 2)}`, "failure rate"]} />
+                  <Bar dataKey="rate" radius={[0, 4, 4, 0]}>
+                    {ledgerData.map((d) => (
+                      <Cell key={d.key} fill={d.key === trace.triggering_stress_condition ? C.fail : d.key.startsWith("cpu") ? C.stress : C.normal} />
+                    ))}
+                    <ErrorBar dataKey="err" width={6} stroke="var(--foreground)" direction="x" />
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+              <p className="font-mono text-[11px] text-muted-foreground">Whiskers = 95% Wilson confidence interval · red = triggering condition</p>
+            </div>
+            <div className="ledger-table-wrap">
+              <table className="ledger-table">
+                <thead>
+                  <tr>
+                    <th>PERTURBATION</th>
+                    <th>FAILED / RUNS</th>
+                    <th>FAILURE RATE</th>
+                    <th>95% WILSON INTERVAL</th>
+                    <th>OBSERVATION</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {trace.stage2_ledger.map(c => (
+                    <tr key={c.perturbation} className={c.perturbation === trace.triggering_stress_condition ? "trigger-row" : ""}>
+                      <td>{c.label}<small>{c.perturbation}</small></td>
+                      <td>{c.failures} / {c.total_runs}</td>
+                      <td>{pct(c.failure_rate, 1)}</td>
+                      <td>[{c.ci_95_lower.toFixed(4)}, {c.ci_95_upper.toFixed(4)}]</td>
+                      <td>
+                        {c.perturbation === trace.triggering_stress_condition ? (
+                          <span className="trigger-badge"><span className="status-dot" />TRIGGERING PERTURBATION DETECTED</span>
+                        ) : (
+                          <span className="text-muted-foreground">{c.perturbation.startsWith("cpu") ? "CPU SENSITIVE" : "CONTROL"}</span>
+                        )}
+                      </td>
+                    </tr>
                   ))}
-                  <ErrorBar dataKey="err" width={6} stroke="var(--foreground)" direction="x" />
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-            <p className="font-mono text-[11px] text-muted-foreground">Whiskers = 95% Wilson confidence interval · red = triggering condition</p>
+                </tbody>
+              </table>
+            </div>
           </div>
           <div className="space-y-4 lg:col-span-2">
+            <CausalLedger trace={trace} />
             <div className="rounded-md border border-primary/40 bg-primary/5 p-4">
               <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-primary"><Brain className="h-4 w-4" /> Root cause · {trace.models_used.deep_reasoning}</div>
               <p className="text-sm leading-relaxed">{a2.root_cause_diagnosis}</p>
@@ -149,8 +206,9 @@ function Dashboard() {
             </div>
           </div>
         </div>
-      <div className="ledger-table-wrap"><table className="ledger-table"><thead><tr><th>PERTURBATION</th><th>FAILED / RUNS</th><th>FAILURE RATE</th><th>95% WILSON INTERVAL</th><th>OBSERVATION</th></tr></thead><tbody>{trace.stage2_ledger.map(c => <tr key={c.perturbation} className={c.perturbation === trace.triggering_stress_condition ? "trigger-row" : ""}><td>{c.label}<small>{c.perturbation}</small></td><td>{c.failures} / {c.total_runs}</td><td>{pct(c.failure_rate, 1)}</td><td>[{c.ci_95_lower.toFixed(4)}, {c.ci_95_upper.toFixed(4)}]</td><td>{c.perturbation === trace.triggering_stress_condition ? <span className="trigger-badge"><span className="status-dot" />TRIGGERING PERTURBATION DETECTED</span> : <span className="text-muted-foreground">{c.perturbation.startsWith("cpu") ? "CPU SENSITIVE" : "CONTROL"}</span>}</td></tr>)}</tbody></table></div>
       </Panel>
+
+      <RaceProfiler trace={trace} />
 
       {/* 4. Verdict comparison + diff + streak */}
       <Panel n="03" title="A fix is only as good as its evidence." icon={<ShieldAlert className="h-4 w-4" />}>
@@ -160,18 +218,11 @@ function Dashboard() {
               <BarChart data={verdictData}>
                 <CartesianGrid stroke={C.grid} strokeDasharray="3 3" vertical={false} />
                 <XAxis dataKey="name" stroke={C.muted} fontSize={11} />
-                <YAxis
-                  stroke={C.muted}
-                  fontSize={11}
-                  tickFormatter={(v: number | string) => {
-                    const n = Number(v);
-                    return isNaN(n) ? String(v) : `${n.toFixed(n % 1 === 0 ? 0 : 1)}%`;
-                  }}
-                />
+                <YAxis unit="%" stroke={C.muted} fontSize={11} />
                 <Tooltip {...tip} cursor={{ fill: "var(--accent)" }} formatter={(v: number) => `${v.toFixed(1)}%`} />
                 <Legend wrapperStyle={{ fontSize: 12 }} />
                 <Bar dataKey="normal" name="Normal Machine" fill={C.normal} radius={[4, 4, 0, 0]} />
-                <Bar dataKey="stress" name="Busy Machine / CPU Stress" fill={C.stress} radius={[4, 4, 0, 0]} />
+                <Bar dataKey="stress" name="Triggering Perturbation" fill={C.stress} radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -181,23 +232,8 @@ function Dashboard() {
               <ResponsiveContainer>
                 <LineChart data={trace.streak_curve_data.points}>
                   <CartesianGrid stroke={C.grid} strokeDasharray="3 3" />
-                  <XAxis
-                    dataKey="true_failure_rate_pct"
-                    stroke={C.muted}
-                    fontSize={11}
-                    tickFormatter={(v: number | string) => {
-                      const n = Number(v);
-                      return isNaN(n) ? String(v) : `${n.toFixed(n % 1 === 0 ? 0 : 1)}%`;
-                    }}
-                  />
-                  <YAxis
-                    stroke={C.muted}
-                    fontSize={11}
-                    tickFormatter={(v: number | string) => {
-                      const n = Number(v);
-                      return isNaN(n) ? String(v) : `${n.toFixed(n % 1 === 0 ? 0 : 1)}%`;
-                    }}
-                  />
+                  <XAxis dataKey="true_failure_rate_pct" unit="%" stroke={C.muted} fontSize={11} />
+                  <YAxis unit="%" stroke={C.muted} fontSize={11} />
                   <Tooltip {...tip} labelFormatter={(l) => `true failure rate ${l}%`} />
                   <Legend wrapperStyle={{ fontSize: 11 }} />
                   <Line dataKey="pass_1_run_pct" name="P(pass 1 run)" stroke={C.pass} dot={false} strokeWidth={2} />
@@ -221,12 +257,13 @@ function Dashboard() {
         </div>
         <div id="stage-04" className="comparison-arena mt-6 grid gap-6 lg:grid-cols-2">
           {[a1, a2].map((a) => (
-            <div key={a.attempt_number} className={`fix-item space-y-4 ${a.verdict === "CERTIFIED" ? "fix-certified" : "fix-rejected"}`}><div className={`arena-stamp ${a.verdict === "CERTIFIED" ? "text-pass" : "text-fail"}`}>{a.verdict === "CERTIFIED" ? `CERTIFIED (< ${pct(a.upper_bound_95_stress, 2)} BOUND)` : "REJECTED UNDER STRESS"}</div><div className="flex justify-between gap-4 border-b border-border pb-4 font-mono"><div><span className="text-[10px] text-muted-foreground">QUIET MACHINE</span><p className="text-2xl text-pass">{pct(a.normal_cert_result.failure_rate)}<span className="ml-2 text-xs text-muted-foreground">{a.normal_cert_result.failures}/{fmtN(a.normal_cert_result.total_runs)}</span></p></div><div><span className="text-[10px] text-muted-foreground">CPU STRESS</span><p className={`text-2xl ${a.verdict === "CERTIFIED" ? "text-pass" : "text-fail"}`}>{pct(a.stress_cert_result.failure_rate)}<span className="ml-2 text-xs text-muted-foreground">{a.stress_cert_result.failures}/{fmtN(a.stress_cert_result.total_runs)}</span></p></div></div>
+            <div key={a.attempt_number} className={`fix-item space-y-4 ${a.verdict === "CERTIFIED" ? "fix-certified" : "fix-rejected"}`}><div className={`arena-stamp ${a.verdict === "CERTIFIED" ? "text-pass" : "text-fail"}`}>{a.verdict === "CERTIFIED" ? `CERTIFIED (< ${pct(a.upper_bound_95_stress, 2)} BOUND)` : "REJECTED UNDER STRESS"}</div><div className="flex justify-between gap-4 border-b border-border pb-4 font-mono"><div><span className="text-[10px] text-muted-foreground">QUIET MACHINE</span><p className="text-2xl text-pass">{pct(a.normal_cert_result.failure_rate)}<span className="ml-2 text-xs text-muted-foreground">{a.normal_cert_result.failures}/{fmtN(a.normal_cert_result.total_runs)}</span></p></div><div><span className="text-[10px] text-muted-foreground">TRIGGER CONDITION</span><p className={`text-2xl ${a.verdict === "CERTIFIED" ? "text-pass" : "text-fail"}`}>{pct(a.stress_cert_result.failure_rate)}<span className="ml-2 text-xs text-muted-foreground">{a.stress_cert_result.failures}/{fmtN(a.stress_cert_result.total_runs)}</span></p></div></div>
               <div className="flex items-center justify-between gap-2">
                 <h3 className="text-sm font-semibold">Attempt {a.attempt_number} · {a.fix_title}</h3>
                 <Verdict v={a.verdict} />
               </div>
               <Diff patch={a.git_diff_patch} />
+              <GatekeeperAudit attempt={a} trace={trace} />
               {a.rejection_reason ? (
                 <p className="flex gap-2 rounded-md border border-stress/40 bg-stress/10 p-3 text-xs text-stress"><XCircle className="h-4 w-4 shrink-0" />{a.rejection_reason}</p>
               ) : (
@@ -240,6 +277,7 @@ function Dashboard() {
       {/* 5. Certificate */}
       <section id="stage-05" className="certificate lab-panel">
         <span className="section-index">STAGE 05 // STATISTICAL CERTIFICATE</span>
+        {trace.evidence_kind === "illustrative" && <p className="mb-4 border-b border-stress/30 pb-3 font-mono text-xs text-stress">ILLUSTRATIVE BENCHMARK CERTIFICATE · NOT RECORDED EXECUTION EVIDENCE</p>}
         
         <div className="flex flex-wrap items-center justify-between gap-4 border-b border-dashed border-border pb-5">
           <div className="flex items-center gap-3">
@@ -257,7 +295,7 @@ function Dashboard() {
         <dl className="mt-6 grid gap-x-8 gap-y-5 font-mono text-sm md:grid-cols-2 lg:grid-cols-3">
           <Field k="Project & Test" v={<>{trace.project_name}<br /><span className="break-all text-xs text-muted-foreground">{trace.test_identifier}</span></>} />
           <Field k="Trace ID & Timestamp" v={<>{trace.trace_id}<br /><span className="text-xs text-muted-foreground">{trace.timestamp_utc}</span></>} />
-          <Field k="Root Cause Found" v={<span className="text-xs leading-relaxed">Race on fixed sleep; triggered by <span className="text-fail">{trace.triggering_stress_condition}</span></span>} />
+          <Field k="Root Cause Found" v={<span className="text-xs leading-relaxed">Triggered by <span className="text-fail">{trace.triggering_stress_condition}</span></span>} />
           <Field k="Before the Fix" v={<><span className="text-fail">{base.failures} / {base.total_runs}</span> normal · <span className="text-fail">{stressCond.failures} / {stressCond.total_runs}</span> stress</>} />
           <Field k="Rejected Quick Fix" v={<>{a1.normal_cert_result.failures} / {fmtN(a1.normal_cert_result.total_runs)} normal · <span className="text-stress">{a1.stress_cert_result.failures} / {fmtN(a1.stress_cert_result.total_runs)}</span> stress</>} />
           <Field k="After the Fix" v={<span className="text-pass">{a2.normal_cert_result.failures} / {fmtN(a2.normal_cert_result.total_runs)} normal · {a2.stress_cert_result.failures} / {fmtN(a2.stress_cert_result.total_runs)} stress</span>} />
@@ -266,7 +304,7 @@ function Dashboard() {
           <Field k="Execution Backend" v={base.execution_backend} />
         </dl>
         <div className="formula-band"><span className="font-mono text-[10px] text-muted-foreground">RULE OF THREE / 95% CONFIDENCE</span><p className="font-mono">Upper Bound = 3 / N = {pct(3 / a2.stress_cert_result.total_runs, 2)}<span className="text-muted-foreground"> · N = {fmtN(a2.stress_cert_result.total_runs)}</span></p></div>
-        <CertificateActions trace={trace} />
+        <AttestationBlock trace={trace} seal={attestation} />
       </section>
     <footer className="lab-footer"><span>COINFLIP / STATISTICAL INVESTIGATION LAB</span><span>MEASURE. PERTURB. VERIFY.</span></footer></main>
     </>

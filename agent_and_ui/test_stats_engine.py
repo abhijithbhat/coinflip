@@ -109,6 +109,12 @@ class TestFishersExactPValue:
         p = fishers_exact_p_value(0, 300, 21, 300)
         assert p < 0.01
 
+    def test_non_triggering_noise_perturbation(self):
+        """22/300 vs 21/300 should yield p > 0.40 (not significant noise)."""
+        p = fishers_exact_p_value(21, 300, 22, 300)
+        assert p > 0.40
+        assert p == pytest.approx(0.5000, abs=1e-2)
+
     def test_edge_case_zero_runs(self):
         p = fishers_exact_p_value(0, 0, 5, 100)
         assert p == 1.0

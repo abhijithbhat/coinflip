@@ -473,12 +473,18 @@ def verify_attestation(
     trace_json_str = json.dumps(trace_data, sort_keys=True, default=str)
     trace_payload_sha256 = hashlib.sha256(trace_json_str.encode("utf-8")).hexdigest()
 
+    merkle_root = attestation.get("experiment_ledger_merkle_root", attestation.get("ledger_merkle_root", ""))
+    patch_diff_hash = attestation.get("patch_diff_sha256", attestation.get("patch_sha256", ""))
+
     return {
         "verified": True,
         "algorithm": attestation.get("algorithm", "SHA-256-Merkle"),
-        "ledger_merkle_root": attestation.get("experiment_ledger_merkle_root", ""),
-        "patch_sha256": attestation.get("patch_diff_sha256", ""),
+        "ledger_merkle_root": merkle_root,
+        "experiment_ledger_merkle_root": merkle_root,
+        "patch_sha256": patch_diff_hash,
+        "patch_diff_sha256": patch_diff_hash,
         "trace_payload_sha256": trace_payload_sha256,
+        "trace_sha256": trace_payload_sha256,
     }
 
 
