@@ -133,9 +133,14 @@
 .status-dot { display: inline-block; width: 5px; height: 5px; flex-shrink: 0; background: var(--pass); border-radius: 50%; }
 .theme-swatch { display: inline-block; width: 14px; height: 14px; border-radius: 50%; background: linear-gradient(90deg, var(--swatch) 50%, var(--swatch-bg) 50%); border: 1px solid var(--border); flex-shrink: 0; }
 .theme-menu { position: absolute; top: calc(100% + 10px); right: 0; width: 285px; padding: 6px; background: var(--card); backdrop-filter: blur(16px); border: 1px solid var(--border); box-shadow: var(--shadow-menu); border-radius: 6px; z-index: 40; }
-.segmented { display: flex; padding: 3px; border: 1px solid var(--border); border-radius: 5px; background: var(--muted); }
-.segmented button { border-radius: 3px; color: var(--muted-foreground); }
-.segmented button[aria-pressed="true"] { background: var(--card); color: var(--foreground); box-shadow: var(--shadow-instrument); }
+.theme-menu button, .case-menu button { border-radius: 4px; transition: all 0.15s ease; }
+.theme-menu button[aria-pressed="true"], .case-menu button[aria-pressed="true"] { background: var(--accent) !important; color: var(--primary) !important; font-weight: 600 !important; }
+.segmented { display: inline-flex; align-items: center; padding: 3px; border: 1px solid var(--border); border-radius: 8px; background: color-mix(in oklab, var(--foreground) 7%, var(--card)); gap: 3px; box-shadow: inset 0 1px 2px color-mix(in oklab, var(--foreground) 4%, transparent); }
+.segmented button { border-radius: 6px; color: var(--muted-foreground); font-weight: 500; height: 32px; padding: 0 13px; font-size: 12px; transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1); border: 1px solid transparent; }
+.segmented button svg { width: 14px; height: 14px; transition: transform 0.18s ease, color 0.18s ease; }
+.segmented button:hover:not([aria-pressed="true"]) { color: var(--foreground); background: color-mix(in oklab, var(--foreground) 8%, transparent); }
+.segmented button[aria-pressed="true"] { background: var(--primary) !important; color: var(--primary-foreground) !important; font-weight: 600 !important; box-shadow: 0 2px 8px color-mix(in oklab, var(--primary) 38%, transparent) !important; border-color: color-mix(in oklab, var(--primary-foreground) 20%, transparent) !important; }
+.segmented button[aria-pressed="true"] svg { color: var(--primary-foreground) !important; }
 .live-progress { height: 2px; background: linear-gradient(90deg, transparent, var(--primary), transparent); background-size: 50% 100%; animation: scan 1.8s linear infinite; }
 .lab-main { max-width: 1500px; margin: 0 auto; padding: 0 36px; }
 .lab-hero { padding: 40px 0 0; }
