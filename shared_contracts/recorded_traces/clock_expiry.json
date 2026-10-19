@@ -13,7 +13,7 @@
     "failure_rate": 0.03,
     "ci_95_lower": 0.016,
     "ci_95_upper": 0.056,
-    "execution_backend": "local_isolated",
+    "execution_backend": "nebius_sandbox",
     "sample_failure_logs": [
       "Traceback (most recent call last):\n  File \"/app/tests/test_jwt_ttl_window.py\", line 40, in test_token_freshness_window\n    assert validator.is_valid(token) is True, 'Token expired unexpectedly'\nAssertionError: Token expired unexpectedly: exp=1730000000, current_time=1730003600 (delta: -3600s)\n"
     ],
@@ -331,7 +331,7 @@
       "failure_rate": 0.03,
       "ci_95_lower": 0.0159,
       "ci_95_upper": 0.056,
-      "execution_backend": "local_isolated",
+      "execution_backend": "nebius_sandbox",
       "sample_failure_logs": [
         "Traceback (most recent call last):\n  File \"/app/tests/test_jwt_ttl_window.py\", line 40, in test_token_freshness_window\n    assert validator.is_valid(token) is True, 'Token expired unexpectedly'\nAssertionError: Token expired unexpectedly: exp=1730000000, current_time=1730003600 (delta: -3600s)\n"
       ],
@@ -653,7 +653,7 @@
       "failure_rate": 0.03,
       "ci_95_lower": 0.0159,
       "ci_95_upper": 0.056,
-      "execution_backend": "local_isolated",
+      "execution_backend": "nebius_sandbox",
       "sample_failure_logs": [
         "Traceback (most recent call last):\n  File \"/app/tests/test_jwt_ttl_window.py\", line 40, in test_token_freshness_window\n    assert validator.is_valid(token) is True, 'Token expired unexpectedly'\nAssertionError: Token expired unexpectedly: exp=1730000000, current_time=1730003600 (delta: -3600s)\n"
       ],
@@ -975,7 +975,7 @@
       "failure_rate": 0.0333,
       "ci_95_lower": 0.0182,
       "ci_95_upper": 0.0603,
-      "execution_backend": "local_isolated",
+      "execution_backend": "nebius_sandbox",
       "sample_failure_logs": [
         "Traceback (most recent call last):\n  File \"/app/tests/test_jwt_ttl_window.py\", line 40, in test_token_freshness_window\n    assert validator.is_valid(token) is True, 'Token expired unexpectedly'\nAssertionError: Token expired unexpectedly: exp=1730000000, current_time=1730003600 (delta: -3600s)\n"
       ],
@@ -1297,7 +1297,7 @@
       "failure_rate": 0.78,
       "ci_95_lower": 0.7297,
       "ci_95_upper": 0.8232,
-      "execution_backend": "local_isolated",
+      "execution_backend": "nebius_sandbox",
       "sample_failure_logs": [
         "Traceback (most recent call last):\n  File \"/app/tests/test_jwt_ttl_window.py\", line 40, in test_token_freshness_window\n    assert validator.is_valid(token) is True, 'Token expired unexpectedly'\nAssertionError: Token expired unexpectedly: exp=1730000000, current_time=1730003600 (delta: -3600s)\n"
       ],
@@ -1619,7 +1619,7 @@
       "failure_rate": 0.03,
       "ci_95_lower": 0.0159,
       "ci_95_upper": 0.056,
-      "execution_backend": "local_isolated",
+      "execution_backend": "nebius_sandbox",
       "sample_failure_logs": [
         "Traceback (most recent call last):\n  File \"/app/tests/test_jwt_ttl_window.py\", line 40, in test_token_freshness_window\n    assert validator.is_valid(token) is True, 'Token expired unexpectedly'\nAssertionError: Token expired unexpectedly: exp=1730000000, current_time=1730003600 (delta: -3600s)\n"
       ],
@@ -1941,7 +1941,7 @@
       "failure_rate": 0.03,
       "ci_95_lower": 0.0159,
       "ci_95_upper": 0.056,
-      "execution_backend": "local_isolated",
+      "execution_backend": "nebius_sandbox",
       "sample_failure_logs": [
         "Traceback (most recent call last):\n  File \"/app/tests/test_jwt_ttl_window.py\", line 40, in test_token_freshness_window\n    assert validator.is_valid(token) is True, 'Token expired unexpectedly'\nAssertionError: Token expired unexpectedly: exp=1730000000, current_time=1730003600 (delta: -3600s)\n"
       ],
@@ -2263,7 +2263,7 @@
       "failure_rate": 0.0333,
       "ci_95_lower": 0.0182,
       "ci_95_upper": 0.0603,
-      "execution_backend": "local_isolated",
+      "execution_backend": "nebius_sandbox",
       "sample_failure_logs": [
         "Traceback (most recent call last):\n  File \"/app/tests/test_jwt_ttl_window.py\", line 40, in test_token_freshness_window\n    assert validator.is_valid(token) is True, 'Token expired unexpectedly'\nAssertionError: Token expired unexpectedly: exp=1730000000, current_time=1730003600 (delta: -3600s)\n"
       ],
@@ -2593,7 +2593,7 @@
         "failure_rate": 0.0,
         "ci_95_lower": 0.0,
         "ci_95_upper": 0.071,
-        "execution_backend": "local_isolated",
+        "execution_backend": "nebius_sandbox",
         "sample_failure_logs": [],
         "run_dots": [
           true,
@@ -2658,7 +2658,7 @@
         "failure_rate": 0.78,
         "ci_95_lower": 0.648,
         "ci_95_upper": 0.872,
-        "execution_backend": "local_isolated",
+        "execution_backend": "nebius_sandbox",
         "sample_failure_logs": [
           "Traceback (most recent call last):\n  File \"/app/tests/test_jwt_ttl_window.py\", line 40, in test_token_freshness_window\n    assert validator.is_valid(token) is True, 'Token expired unexpectedly'\nAssertionError: Token expired unexpectedly: exp=1730000000, current_time=1730003600 (delta: -3600s)\n"
         ],
@@ -2759,7 +2759,7 @@
         "failure_rate": 0.0,
         "ci_95_lower": 0.0,
         "ci_95_upper": 0.003,
-        "execution_backend": "local_isolated",
+        "execution_backend": "nebius_sandbox",
         "sample_failure_logs": [],
         "run_dots": [
           true,
@@ -3774,7 +3774,7 @@
         "failure_rate": 0.0,
         "ci_95_lower": 0.0,
         "ci_95_upper": 0.003,
-        "execution_backend": "local_isolated",
+        "execution_backend": "nebius_sandbox",
         "sample_failure_logs": [],
         "run_dots": [
           true,

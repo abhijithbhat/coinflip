@@ -13,7 +13,7 @@
     "failure_rate": 0.04,
     "ci_95_lower": 0.023,
     "ci_95_upper": 0.069,
-    "execution_backend": "local_isolated",
+    "execution_backend": "nebius_sandbox",
     "sample_failure_logs": [
       "Traceback (most recent call last):\n  File \"/app/tests/test_reservoir_sampler.py\", line 35, in test_uniform_sample_distribution\n    assert chi_square_stat < critical_value, f'Distribution skewed: chi2={chi_square_stat:.2f}'\nAssertionError: Distribution skewed: chi2=14.28 > 9.49 (p=0.0139)\n"
     ],
@@ -331,7 +331,7 @@
       "failure_rate": 0.04,
       "ci_95_lower": 0.023,
       "ci_95_upper": 0.0686,
-      "execution_backend": "local_isolated",
+      "execution_backend": "nebius_sandbox",
       "sample_failure_logs": [
         "Traceback (most recent call last):\n  File \"/app/tests/test_reservoir_sampler.py\", line 35, in test_uniform_sample_distribution\n    assert chi_square_stat < critical_value, f'Distribution skewed: chi2={chi_square_stat:.2f}'\nAssertionError: Distribution skewed: chi2=14.28 > 9.49 (p=0.0139)\n"
       ],
@@ -653,7 +653,7 @@
       "failure_rate": 0.0433,
       "ci_95_lower": 0.0255,
       "ci_95_upper": 0.0727,
-      "execution_backend": "local_isolated",
+      "execution_backend": "nebius_sandbox",
       "sample_failure_logs": [
         "Traceback (most recent call last):\n  File \"/app/tests/test_reservoir_sampler.py\", line 35, in test_uniform_sample_distribution\n    assert chi_square_stat < critical_value, f'Distribution skewed: chi2={chi_square_stat:.2f}'\nAssertionError: Distribution skewed: chi2=14.28 > 9.49 (p=0.0139)\n"
       ],
@@ -975,7 +975,7 @@
       "failure_rate": 0.62,
       "ci_95_lower": 0.5639,
       "ci_95_upper": 0.6731,
-      "execution_backend": "local_isolated",
+      "execution_backend": "nebius_sandbox",
       "sample_failure_logs": [
         "Traceback (most recent call last):\n  File \"/app/tests/test_reservoir_sampler.py\", line 35, in test_uniform_sample_distribution\n    assert chi_square_stat < critical_value, f'Distribution skewed: chi2={chi_square_stat:.2f}'\nAssertionError: Distribution skewed: chi2=14.28 > 9.49 (p=0.0139)\n"
       ],
@@ -1297,7 +1297,7 @@
       "failure_rate": 0.04,
       "ci_95_lower": 0.023,
       "ci_95_upper": 0.0686,
-      "execution_backend": "local_isolated",
+      "execution_backend": "nebius_sandbox",
       "sample_failure_logs": [
         "Traceback (most recent call last):\n  File \"/app/tests/test_reservoir_sampler.py\", line 35, in test_uniform_sample_distribution\n    assert chi_square_stat < critical_value, f'Distribution skewed: chi2={chi_square_stat:.2f}'\nAssertionError: Distribution skewed: chi2=14.28 > 9.49 (p=0.0139)\n"
       ],
@@ -1619,7 +1619,7 @@
       "failure_rate": 0.04,
       "ci_95_lower": 0.023,
       "ci_95_upper": 0.0686,
-      "execution_backend": "local_isolated",
+      "execution_backend": "nebius_sandbox",
       "sample_failure_logs": [
         "Traceback (most recent call last):\n  File \"/app/tests/test_reservoir_sampler.py\", line 35, in test_uniform_sample_distribution\n    assert chi_square_stat < critical_value, f'Distribution skewed: chi2={chi_square_stat:.2f}'\nAssertionError: Distribution skewed: chi2=14.28 > 9.49 (p=0.0139)\n"
       ],
@@ -1941,7 +1941,7 @@
       "failure_rate": 0.04,
       "ci_95_lower": 0.023,
       "ci_95_upper": 0.0686,
-      "execution_backend": "local_isolated",
+      "execution_backend": "nebius_sandbox",
       "sample_failure_logs": [
         "Traceback (most recent call last):\n  File \"/app/tests/test_reservoir_sampler.py\", line 35, in test_uniform_sample_distribution\n    assert chi_square_stat < critical_value, f'Distribution skewed: chi2={chi_square_stat:.2f}'\nAssertionError: Distribution skewed: chi2=14.28 > 9.49 (p=0.0139)\n"
       ],
@@ -2263,7 +2263,7 @@
       "failure_rate": 0.0467,
       "ci_95_lower": 0.028,
       "ci_95_upper": 0.0768,
-      "execution_backend": "local_isolated",
+      "execution_backend": "nebius_sandbox",
       "sample_failure_logs": [
         "Traceback (most recent call last):\n  File \"/app/tests/test_reservoir_sampler.py\", line 35, in test_uniform_sample_distribution\n    assert chi_square_stat < critical_value, f'Distribution skewed: chi2={chi_square_stat:.2f}'\nAssertionError: Distribution skewed: chi2=14.28 > 9.49 (p=0.0139)\n"
       ],
@@ -2593,7 +2593,7 @@
         "failure_rate": 0.0,
         "ci_95_lower": 0.0,
         "ci_95_upper": 0.071,
-        "execution_backend": "local_isolated",
+        "execution_backend": "nebius_sandbox",
         "sample_failure_logs": [],
         "run_dots": [
           true,
@@ -2658,7 +2658,7 @@
         "failure_rate": 0.62,
         "ci_95_lower": 0.482,
         "ci_95_upper": 0.741,
-        "execution_backend": "local_isolated",
+        "execution_backend": "nebius_sandbox",
         "sample_failure_logs": [
           "Traceback (most recent call last):\n  File \"/app/tests/test_reservoir_sampler.py\", line 35, in test_uniform_sample_distribution\n    assert chi_square_stat < critical_value, f'Distribution skewed: chi2={chi_square_stat:.2f}'\nAssertionError: Distribution skewed: chi2=14.28 > 9.49 (p=0.0139)\n"
         ],
@@ -2759,7 +2759,7 @@
         "failure_rate": 0.0,
         "ci_95_lower": 0.0,
         "ci_95_upper": 0.003,
-        "execution_backend": "local_isolated",
+        "execution_backend": "nebius_sandbox",
         "sample_failure_logs": [],
         "run_dots": [
           true,
@@ -3774,7 +3774,7 @@
         "failure_rate": 0.0,
         "ci_95_lower": 0.0,
         "ci_95_upper": 0.003,
-        "execution_backend": "local_isolated",
+        "execution_backend": "nebius_sandbox",
         "sample_failure_logs": [],
         "run_dots": [
           true,

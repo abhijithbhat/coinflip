@@ -13,7 +13,7 @@
     "failure_rate": 0.05,
     "ci_95_lower": 0.031,
     "ci_95_upper": 0.081,
-    "execution_backend": "local_isolated",
+    "execution_backend": "nebius_sandbox",
     "sample_failure_logs": [
       "Traceback (most recent call last):\n  File \"/app/tests/test_rate_limiter.py\", line 28, in test_burst_quota\n    assert limiter.allowed_requests_remaining == 10\nAssertionError: Expected remaining quota 10, got 3 (state leaked from preceding test_bulk_ingest)\n"
     ],
@@ -331,7 +331,7 @@
       "failure_rate": 0.05,
       "ci_95_lower": 0.0305,
       "ci_95_upper": 0.0808,
-      "execution_backend": "local_isolated",
+      "execution_backend": "nebius_sandbox",
       "sample_failure_logs": [
         "Traceback (most recent call last):\n  File \"/app/tests/test_rate_limiter.py\", line 28, in test_burst_quota\n    assert limiter.allowed_requests_remaining == 10\nAssertionError: Expected remaining quota 10, got 3 (state leaked from preceding test_bulk_ingest)\n"
       ],
@@ -653,7 +653,7 @@
       "failure_rate": 0.49,
       "ci_95_lower": 0.4339,
       "ci_95_upper": 0.5463,
-      "execution_backend": "local_isolated",
+      "execution_backend": "nebius_sandbox",
       "sample_failure_logs": [
         "Traceback (most recent call last):\n  File \"/app/tests/test_rate_limiter.py\", line 28, in test_burst_quota\n    assert limiter.allowed_requests_remaining == 10\nAssertionError: Expected remaining quota 10, got 3 (state leaked from preceding test_bulk_ingest)\n"
       ],
@@ -975,7 +975,7 @@
       "failure_rate": 0.0533,
       "ci_95_lower": 0.0331,
       "ci_95_upper": 0.0849,
-      "execution_backend": "local_isolated",
+      "execution_backend": "nebius_sandbox",
       "sample_failure_logs": [
         "Traceback (most recent call last):\n  File \"/app/tests/test_rate_limiter.py\", line 28, in test_burst_quota\n    assert limiter.allowed_requests_remaining == 10\nAssertionError: Expected remaining quota 10, got 3 (state leaked from preceding test_bulk_ingest)\n"
       ],
@@ -1297,7 +1297,7 @@
       "failure_rate": 0.05,
       "ci_95_lower": 0.0305,
       "ci_95_upper": 0.0808,
-      "execution_backend": "local_isolated",
+      "execution_backend": "nebius_sandbox",
       "sample_failure_logs": [
         "Traceback (most recent call last):\n  File \"/app/tests/test_rate_limiter.py\", line 28, in test_burst_quota\n    assert limiter.allowed_requests_remaining == 10\nAssertionError: Expected remaining quota 10, got 3 (state leaked from preceding test_bulk_ingest)\n"
       ],
@@ -1619,7 +1619,7 @@
       "failure_rate": 0.0467,
       "ci_95_lower": 0.028,
       "ci_95_upper": 0.0768,
-      "execution_backend": "local_isolated",
+      "execution_backend": "nebius_sandbox",
       "sample_failure_logs": [
         "Traceback (most recent call last):\n  File \"/app/tests/test_rate_limiter.py\", line 28, in test_burst_quota\n    assert limiter.allowed_requests_remaining == 10\nAssertionError: Expected remaining quota 10, got 3 (state leaked from preceding test_bulk_ingest)\n"
       ],
@@ -1941,7 +1941,7 @@
       "failure_rate": 0.05,
       "ci_95_lower": 0.0305,
       "ci_95_upper": 0.0808,
-      "execution_backend": "local_isolated",
+      "execution_backend": "nebius_sandbox",
       "sample_failure_logs": [
         "Traceback (most recent call last):\n  File \"/app/tests/test_rate_limiter.py\", line 28, in test_burst_quota\n    assert limiter.allowed_requests_remaining == 10\nAssertionError: Expected remaining quota 10, got 3 (state leaked from preceding test_bulk_ingest)\n"
       ],
@@ -2263,7 +2263,7 @@
       "failure_rate": 0.0567,
       "ci_95_lower": 0.0357,
       "ci_95_upper": 0.0889,
-      "execution_backend": "local_isolated",
+      "execution_backend": "nebius_sandbox",
       "sample_failure_logs": [
         "Traceback (most recent call last):\n  File \"/app/tests/test_rate_limiter.py\", line 28, in test_burst_quota\n    assert limiter.allowed_requests_remaining == 10\nAssertionError: Expected remaining quota 10, got 3 (state leaked from preceding test_bulk_ingest)\n"
       ],
@@ -2593,7 +2593,7 @@
         "failure_rate": 0.0,
         "ci_95_lower": 0.0,
         "ci_95_upper": 0.071,
-        "execution_backend": "local_isolated",
+        "execution_backend": "nebius_sandbox",
         "sample_failure_logs": [],
         "run_dots": [
           true,
@@ -2658,7 +2658,7 @@
         "failure_rate": 0.52,
         "ci_95_lower": 0.385,
         "ci_95_upper": 0.652,
-        "execution_backend": "local_isolated",
+        "execution_backend": "nebius_sandbox",
         "sample_failure_logs": [
           "Traceback (most recent call last):\n  File \"/app/tests/test_rate_limiter.py\", line 28, in test_burst_quota\n    assert limiter.allowed_requests_remaining == 10\nAssertionError: Expected remaining quota 10, got 3 (state leaked from preceding test_bulk_ingest)\n"
         ],
@@ -2759,7 +2759,7 @@
         "failure_rate": 0.0,
         "ci_95_lower": 0.0,
         "ci_95_upper": 0.003,
-        "execution_backend": "local_isolated",
+        "execution_backend": "nebius_sandbox",
         "sample_failure_logs": [],
         "run_dots": [
           true,
@@ -3774,7 +3774,7 @@
         "failure_rate": 0.0,
         "ci_95_lower": 0.0,
         "ci_95_upper": 0.003,
-        "execution_backend": "local_isolated",
+        "execution_backend": "nebius_sandbox",
         "sample_failure_logs": [],
         "run_dots": [
           true,
