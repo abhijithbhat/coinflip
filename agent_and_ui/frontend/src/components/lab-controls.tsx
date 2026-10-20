@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Activity, ArrowDown, Check, Copy, Download, Loader2, Play, Radio, Cpu, ChevronDown, FlaskConical as FlaskIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { BENCHMARK_CASES, type CaseId, type Trace } from "@/lib/trace";
@@ -17,6 +17,10 @@ export function CommandBar({ trace, busy, note, onLive, caseId, caseBusy, onCase
   const [open, setOpen] = useState(false);
   const [caseOpen, setCaseOpen] = useState(false);
   const [mode, setMode] = useState("replay");
+
+  const caseRef = useRef<HTMLDivElement>(null);
+  const themeRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
     let saved: string | null = null;
     try { saved = localStorage.getItem("coinflip-theme"); if (saved === "olive-butter") saved = "butter-iris"; } catch { /* storage unavailable */ }
@@ -24,6 +28,40 @@ export function CommandBar({ trace, busy, note, onLive, caseId, caseBusy, onCase
     setTheme(chosen); document.documentElement.dataset['theme'] = chosen;
     document.documentElement.classList.remove("dark");
   }, []);
+
+  useEffect(() => {
+    if (!caseOpen && !open) return;
+
+    function handleClickOutside(event: MouseEvent | TouchEvent) {
+      const target = event.target as Node | null;
+      if (!target) return;
+
+      if (caseOpen && caseRef.current && !caseRef.current.contains(target)) {
+        setCaseOpen(false);
+      }
+      if (open && themeRef.current && !themeRef.current.contains(target)) {
+        setOpen(false);
+      }
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setCaseOpen(false);
+        setOpen(false);
+      }
+    }
+
+    document.addEventListener("mousedown", handleClickOutside);
+    document.addEventListener("touchstart", handleClickOutside);
+    document.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("touchstart", handleClickOutside);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [caseOpen, open]);
+
   function choose(id: string) {
     setTheme(id); setOpen(false); document.documentElement.dataset['theme'] = id;
     try { localStorage.setItem("coinflip-theme", id); } catch { /* storage unavailable */ }
@@ -32,12 +70,12 @@ export function CommandBar({ trace, busy, note, onLive, caseId, caseBusy, onCase
     <div className="command-inner">
       <a href="#" className="brand-lockup"><span className="brand-mark">c<span>f</span></span><span><strong className="font-display text-xl">coinflip<span className="text-primary">.</span></strong><span className="brand-subtitle">STATISTICAL INVESTIGATION LAB</span></span></a>
       <div className="command-actions flex flex-wrap items-center gap-3">
-        <div className="relative">
-          <Button variant="outline" size="sm" className="case-selector bg-card" aria-label="Case Selector" aria-expanded={caseOpen} disabled={busy} onClick={() => setCaseOpen(!caseOpen)}>{caseBusy ? <Loader2 className="animate-spin" /> : <FlaskIcon />}<span>{BENCHMARK_CASES.find(c => c.id === caseId)?.name}</span><ChevronDown /></Button>
+        <div className="relative" ref={caseRef}>
+          <Button variant="outline" size="sm" className="case-selector bg-card" aria-label="Case Selector" aria-expanded={caseOpen} disabled={busy} onClick={() => { setCaseOpen(prev => !prev); setOpen(false); }}>{caseBusy ? <Loader2 className="animate-spin" /> : <FlaskIcon />}<span>{BENCHMARK_CASES.find(c => c.id === caseId)?.name}</span><ChevronDown /></Button>
           {caseOpen && <div className="theme-menu case-menu" role="group" aria-label="Benchmark cases">{BENCHMARK_CASES.map(c => <Button key={c.id} variant="ghost" className="w-full justify-start" aria-pressed={caseId === c.id} onClick={() => { setCaseOpen(false); onCase(c.id); }}>{c.name}{caseId === c.id && <Check className="ml-auto" />}</Button>)}</div>}
         </div>
-        <div className="relative">
-          <Button variant="outline" size="sm" className="rounded-full bg-card" aria-expanded={open} onClick={() => setOpen(!open)}><span className="theme-swatch" data-palette={theme} />{themes.find(t => t.id === theme)?.name}<ChevronDown /></Button>
+        <div className="relative" ref={themeRef}>
+          <Button variant="outline" size="sm" className="rounded-full bg-card" aria-expanded={open} onClick={() => { setOpen(prev => !prev); setCaseOpen(false); }}><span className="theme-swatch" data-palette={theme} />{themes.find(t => t.id === theme)?.name}<ChevronDown /></Button>
           {open && <div className="theme-menu" role="group" aria-label="Design Studio">{themes.map(t => <Button key={t.id} variant="ghost" className="w-full justify-start" onClick={() => choose(t.id)} aria-pressed={theme === t.id}><span className="theme-swatch" data-palette={t.id} />{t.name}{theme === t.id && <Check className="ml-auto" />}</Button>)}</div>}
         </div>
         <div className="segmented" aria-label="Execution mode">
