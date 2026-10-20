@@ -183,6 +183,17 @@ class CoinflipOrchestrator:
             "failure_rate": stage1_baseline.failure_rate,
         })
 
+        # Launch real Nebius Token Factory log summarization concurrently with Stage 2!
+        # Runs in background asyncio.Task while Stage 2 perturbation batches execute.
+        # By the time Stage 2 finishes (~2.5s), the real Nemotron-3_5-Lightning summary is ready!
+        sample_failure_logs = stage1_baseline.sample_failure_logs or []
+        if not sample_failure_logs and stage1_baseline.failures > 0:
+            sample_failure_logs = [f"AssertionError in {self.test_target} under baseline conditions."]
+
+        summary_task: asyncio.Task[str] = asyncio.create_task(
+            asyncio.to_thread(self.llm.summarize_failure_logs, sample_failure_logs)
+        )
+
         # ---------------------------------------------------------------------
         # STAGE 2: EXPERIMENT (7-CONDITION PERTURBATION LEDGER)
         # ---------------------------------------------------------------------
@@ -246,9 +257,25 @@ class CoinflipOrchestrator:
             "triggering_condition": triggering_condition.value,
         })
 
+        # Collect concurrent log summary from Nebius Token Factory
+        try:
+            log_summary = await asyncio.wait_for(summary_task, timeout=12.0)
+        except Exception as e:
+            logger.warning("Concurrent Nebius log summarization failed (%s). Using fallback summary.", e)
+            log_summary = f"Observed {stage1_baseline.failures} assertion failures in {self.test_target}."
+
         # Read original test code from base snapshot for AI repair
         test_file_path = base_snapshot_path / self.test_target
         original_test_code = test_file_path.read_text(encoding="utf-8") if test_file_path.exists() else ""
+
+        # Read companion service code if available in base snapshot
+        service_code = ""
+        for p in base_snapshot_path.glob("*.py"):
+            if not p.name.startswith("test_") and p.name not in ("conftest.py", "__init__.py"):
+                try:
+                    service_code += f"# {p.name}:\n{p.read_text(encoding='utf-8')}\n\n"
+                except Exception:
+                    pass
 
         # ---------------------------------------------------------------------
         # STAGES 3 & 4: FIND & FIX + STRESS CERTIFICATION WITH RETRY LOOP
@@ -273,13 +300,6 @@ class CoinflipOrchestrator:
                 "message": "Generating naive quick-fix to evaluate stress rejection...",
             })
             logger.info("[STAGE 3/4 - ATTEMPT 1] Evaluating Naive Quick Fix (raising timeout/sleep)...")
-            if fast_live_mode:
-                log_summary = "Worker timed out before completion under concurrency load."
-            else:
-                try:
-                    log_summary = self.llm.summarize_failure_logs(all_sample_logs)
-                except Exception:
-                    log_summary = "Worker timed out before completion."
 
             # Check if benchmark folder has a pre-built naive patch
             naive_patch_file = self.repo_dir / "patches" / "naive_quick_fix.py"
@@ -328,26 +348,18 @@ class CoinflipOrchestrator:
         real_code = original_test_code
 
         try:
-            if fast_live_mode:
-                # Wrap LLM call in 1.5s timeout using fast Nemotron-3_5-Lightning
-                real_title, real_diag, real_code = await asyncio.wait_for(
-                    asyncio.to_thread(
-                        self.llm.diagnose_and_propose_fix,
-                        test_code=original_test_code,
-                        stage1_baseline=stage1_baseline,
-                        stage2_ledger=stage2_ledger,
-                        previous_rejected_attempts=fix_attempts,
-                        fast_live_mode=True,
-                    ),
-                    timeout=1.5,
-                )
-            else:
-                real_title, real_diag, real_code = self.llm.diagnose_and_propose_fix(
+            real_title, real_diag, real_code = await asyncio.wait_for(
+                asyncio.to_thread(
+                    self.llm.diagnose_and_propose_fix,
                     test_code=original_test_code,
                     stage1_baseline=stage1_baseline,
                     stage2_ledger=stage2_ledger,
                     previous_rejected_attempts=fix_attempts,
-                )
+                    service_code=service_code,
+                    fast_live_mode=fast_live_mode,
+                ),
+                timeout=12.0,  # 12.0s realistic timeout for real Nebius Token Factory call
+            )
         except Exception as e:
             logger.warning("Nemotron call timed out or failed (%s). Using verified benchmark patch.", e)
             if cert_patch_file.exists():
@@ -359,6 +371,7 @@ class CoinflipOrchestrator:
                     stage1_baseline=stage1_baseline,
                     stage2_ledger=stage2_ledger,
                     previous_rejected_attempts=fix_attempts,
+                    service_code=service_code,
                 )
 
         _notify("stage4_certification", {
@@ -398,6 +411,13 @@ class CoinflipOrchestrator:
         profiler = SubMillisecondTimelineProfiler()
         race_profile = profiler.profile(fast_mode=fast_live_mode)
 
+        # Collect LLM call metadata from live Nebius completions
+        llm_metadata = {
+            "summarize": getattr(self.llm, "summarize_call_metadata", {}) or {},
+            "diagnose": getattr(self.llm, "diagnose_call_metadata", {}) or {},
+            "last_call": getattr(self.llm, "last_call_metadata", {}) or {},
+        }
+
         trace = CoinflipCertificateTrace(
             trace_id=trace_id,
             timestamp_utc=timestamp_utc,
@@ -410,10 +430,11 @@ class CoinflipOrchestrator:
             fix_attempts=fix_attempts,
             final_verdict=final_verdict,
             models_used={
-                "bulk_log_reading": MODEL_FAST,
-                "deep_reasoning": MODEL_REASONING,
+                "bulk_log_reading": getattr(self.llm, "summarize_call_metadata", {}).get("model") or MODEL_FAST,
+                "deep_reasoning": getattr(self.llm, "diagnose_call_metadata", {}).get("model") or (MODEL_FAST if fast_live_mode else MODEL_REASONING),
             },
             race_timeline=race_profile,
+            llm_call_metadata=llm_metadata,
         )
 
         # Cryptographically sign trace with SHA-256 Merkle attestation

@@ -365,6 +365,7 @@ async def run_live(
             data["streak_curve_data"] = generate_streak_curve_data()
             data["execution_mode_badge"] = "Live Execution (Coinflip Engine)"
             data["is_fallback"] = False
+            data["llm_metadata"] = data.get("llm_call_metadata") or {}
             return enrich_trace_with_advanced_analytics(data)
 
         except Exception as exc:

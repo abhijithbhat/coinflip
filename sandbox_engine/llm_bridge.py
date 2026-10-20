@@ -47,6 +47,9 @@ class NemotronBridge:
         )
 
         self._external_agent: Any = None
+        self.last_call_metadata: dict[str, Any] = {}
+        self.summarize_call_metadata: dict[str, Any] = {}
+        self.diagnose_call_metadata: dict[str, Any] = {}
         self._check_for_external_agent()
 
         self._client: OpenAI | None = None
@@ -106,6 +109,14 @@ class NemotronBridge:
 
     def summarize_failure_logs(self, logs: list[str]) -> str:
         """Summarizes deduplicated failure tracebacks in < 250 tokens using Nemotron Lightning."""
+        if self._external_agent and hasattr(self._external_agent, "summarize_failure_logs"):
+            res = self._external_agent.summarize_failure_logs(logs)
+            if hasattr(self._external_agent, "summarize_call_metadata"):
+                self.summarize_call_metadata = getattr(self._external_agent, "summarize_call_metadata")
+            if hasattr(self._external_agent, "last_call_metadata"):
+                self.last_call_metadata = getattr(self._external_agent, "last_call_metadata")
+            return res
+
         if not logs:
             return "No failure logs recorded."
 
@@ -163,6 +174,9 @@ class NemotronBridge:
         stage1_baseline: BatchExperimentResult,
         stage2_ledger: list[BatchExperimentResult],
         previous_rejected_attempts: list[CandidateFixEvaluation] | None = None,
+        *,
+        service_code: str | None = None,
+        fast_live_mode: bool = False,
     ) -> tuple[str, str, str]:
         """Uses Nemotron 3 Ultra 550B to diagnose root cause and generate a certified synchronization fix.
 
@@ -175,6 +189,20 @@ class NemotronBridge:
         Returns:
             tuple[str, str, str]: (fix_title, root_cause_diagnosis, patched_code_or_diff)
         """
+        if self._external_agent and hasattr(self._external_agent, "diagnose_and_propose_fix"):
+            res = self._external_agent.diagnose_and_propose_fix(
+                test_code=test_code,
+                stage1_baseline=stage1_baseline,
+                stage2_ledger=stage2_ledger,
+                previous_rejected_attempts=previous_rejected_attempts,
+                service_code=service_code,
+                fast_live_mode=fast_live_mode,
+            )
+            if hasattr(self._external_agent, "diagnose_call_metadata"):
+                self.diagnose_call_metadata = getattr(self._external_agent, "diagnose_call_metadata")
+            if hasattr(self._external_agent, "last_call_metadata"):
+                self.last_call_metadata = getattr(self._external_agent, "last_call_metadata")
+            return res
         # Format ledger into clean markdown table
         ledger_rows = [
             f"- {r.perturbation.value}: {r.failures}/{r.total_runs} failed ({r.failure_rate * 100:.1f}%)"

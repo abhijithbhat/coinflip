@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import difflib
 import json
+import logging
 import os
 from pathlib import Path
 import re
@@ -21,6 +22,7 @@ from openai import OpenAI
 
 # Load environment variables from .env
 load_dotenv()
+logger = logging.getLogger("agent_and_ui.nemotron_agent")
 
 # Verified Nebius Token Factory Model IDs
 LIGHTNING_MODEL = "nvidia/Nemotron-3_5-Lightning"
@@ -73,13 +75,13 @@ def _parse_fenced_json(raw_text: str) -> Any:
     for candidate in reversed(fenced_matches):
         candidate_str = candidate.strip()
         try:
-            return json.loads(candidate_str)
+            return json.loads(candidate_str, strict=False)
         except json.JSONDecodeError:
             continue
 
     # 2. Try direct JSON load
     try:
-        return json.loads(raw_text.strip())
+        return json.loads(raw_text.strip(), strict=False)
     except json.JSONDecodeError:
         pass
 
@@ -88,7 +90,7 @@ def _parse_fenced_json(raw_text: str) -> Any:
     if obj_match:
         candidate_str = obj_match.group(1).strip()
         try:
-            return json.loads(candidate_str)
+            return json.loads(candidate_str, strict=False)
         except json.JSONDecodeError:
             pass
 
@@ -106,6 +108,18 @@ def _build_git_diff(original_code: str, patched_code: str, filename: str = "test
         tofile=f"b/{filename}",
     )
     return "".join(diff)
+
+
+def _ensure_imports(original_code: str, patched_code: str) -> str:
+    """Ensures imports from the original test file are retained in the patched code."""
+    orig_imports = [
+        line for line in original_code.splitlines()
+        if (line.startswith("import ") or line.startswith("from ")) and "conftest" not in line
+    ]
+    missing = [line for line in orig_imports if line not in patched_code]
+    if missing and not patched_code.strip().startswith(("import ", "from ", '"""', "'''")):
+        return "\n".join(missing) + "\n\n" + patched_code
+    return patched_code
 
 
 def _extract_attr(obj: Any, key: str, default: Any = None) -> Any:
@@ -134,6 +148,9 @@ class NemotronAgent:
             timeout=timeout,
         )
         self.last_reasoning_trace: str | None = None
+        self.last_call_metadata: dict[str, Any] = {}
+        self.summarize_call_metadata: dict[str, Any] = {}
+        self.diagnose_call_metadata: dict[str, Any] = {}
 
     def _call_with_fallback(
         self,
@@ -143,10 +160,10 @@ class NemotronAgent:
         temperature: float = 0.2,
         max_tokens: int = 4096,
         timeout: float | None = None,
-    ) -> tuple[str, str]:
+    ) -> tuple[str, str, Any]:
         """
-        Call primary Nemotron model with max_tokens=4096; automatically fall back
-        to secondary model on error or empty content. Returns (text, model_used).
+        Call primary Nemotron model with fallback to secondary model on error or empty content.
+        Returns (text, model_used, response_obj).
         """
         last_error: Exception | None = None
         for model_id in (primary_model, fallback_model):
@@ -163,7 +180,7 @@ class NemotronAgent:
                 msg = response.choices[0].message
                 text = _extract_response_text(msg)
                 if text:
-                    return text, model_id
+                    return text, model_id, response
             except Exception as exc:
                 last_error = exc
                 continue
@@ -222,15 +239,48 @@ class NemotronAgent:
         ]
 
         try:
-            text, _ = self._call_with_fallback(
+            call_res = self._call_with_fallback(
                 primary_model=LIGHTNING_MODEL,
                 fallback_model=LIGHTNING_FALLBACK,
                 messages=messages,
                 temperature=0.1,
-                max_tokens=4096,
+                max_tokens=800,
+                timeout=12.0,
             )
+            if len(call_res) == 3:
+                text, model_used, response_obj = call_res
+            else:
+                text, model_used = call_res
+                response_obj = None
+
+            prompt_tokens = getattr(getattr(response_obj, "usage", None), "prompt_tokens", 0) or 0
+            completion_tokens = getattr(getattr(response_obj, "usage", None), "completion_tokens", 0) or 0
+            completion_id = getattr(response_obj, "id", "") if response_obj else f"mock-{os.urandom(4).hex()}"
+            response_model = getattr(response_obj, "model", model_used) if response_obj else model_used
+
+            meta = {
+                "live_api_succeeded": True,
+                "completion_id": completion_id,
+                "model": response_model,
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": completion_tokens,
+                "fallback_used": False,
+            }
+            self.summarize_call_metadata = meta
+            self.last_call_metadata = meta
             return text
-        except Exception:
+        except Exception as exc:
+            meta = {
+                "live_api_succeeded": False,
+                "completion_id": "",
+                "model": "",
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+                "fallback_used": True,
+                "error": str(exc),
+            }
+            self.summarize_call_metadata = meta
+            self.last_call_metadata = meta
             # Deterministic offline fallback so pipelines never crash if API is unreachable
             top_trace = next(iter(counts.keys()))
             last_lines = [line.strip() for line in top_trace.splitlines() if line.strip()][-3:]
@@ -372,21 +422,23 @@ class NemotronAgent:
         stage2_ledger: list[Any],
         previous_rejected_attempts: list[Any] | None = None,
         *,
+        service_code: str | None = None,
         timeline_profile: dict | None = None,
         ast_audit: dict | None = None,
         fast_live_mode: bool = False,
     ) -> tuple[str, str, str]:
         """
         Stage 3 Root Cause Diagnosis & Fix Generator.
-        Calls nvidia/Nemotron-3-Ultra-550b-a55b with Stage 2 ledger evidence.
+        Calls nvidia/Nemotron-3-Ultra-550b-a55b (or Nemotron-3_5-Lightning in fast_live_mode)
+        with Stage 2 ledger evidence and target service context.
         If `previous_rejected_attempts` is passed, feeds rejection evidence into the prompt.
         Optionally injects `timeline_profile` and `ast_audit` context into the prompt.
 
         Stores the last reasoning content in self.last_reasoning_trace.
+        Tracks metadata in self.diagnose_call_metadata and self.last_call_metadata.
 
         Returns:
             tuple[str, str, str]: (fix_title, root_cause_diagnosis, patched_code)
-            matching orchestrator.py: real_title, real_diag, real_code = self.llm.diagnose_and_propose_fix(...)
         """
         # Format Stage 1 Baseline
         b_runs = _extract_attr(stage1_baseline, "total_runs", 300)
@@ -459,48 +511,157 @@ class NemotronAgent:
                 f"- Summary: {ast_audit.get('summary', 'N/A')}"
             )
 
-        messages = [
-            {
-                "role": "system",
-                "content": (
-                    "You are Coinflip's Principal Root-Cause Diagnosis & Repair Agent powered by NVIDIA Nemotron 3 Ultra. "
-                    "Analyze the flaky test code and the Stage 2 Controlled Experiment Ledger.\n"
-                    "1. Diagnose the exact root cause in plain English based on which perturbation spiked the failure rate.\n"
-                    "2. Write a complete, working Python replacement in `patched_code` that eliminates the root cause "
-                    "deterministically (NEVER just increase sleep durations; wait for the actual completion signal/event).\n"
-                    "3. Return ONLY a fenced ```json block with these exact keys:\n"
-                    '  "fix_title": short title of the fix,\n'
-                    '  "root_cause_diagnosis": plain-English explanation citing the experiment ledger numbers,\n'
-                    '  "patched_code": complete fixed Python code,\n'
-                    '  "git_diff_patch": unified git diff string.'
-                ),
-            },
-            {
-                "role": "user",
-                "content": (
-                    f"### Original Flaky Test Code:\n```python\n{test_code}\n```\n\n"
-                    f"### Stage 1 & Stage 2 Controlled Experiment Ledger:\n{ledger_table_str}"
-                    f"{rejection_context}"
-                    f"{phase5_context}\n\n"
-                    "Output your diagnosis and fix inside a ```json fenced block."
-                ),
-            },
-        ]
+        service_context = ""
+        if service_code:
+            service_context = f"\n\n### Target Service Module Implementation:\n```python\n{service_code}\n```"
+
+        if fast_live_mode:
+            messages = [
+                {
+                    "role": "user",
+                    "content": (
+                        "You are Coinflip AI. Replace arbitrary time.sleep/fixed delays with deterministic synchronization "
+                        "(e.g. worker.wait_for_completion(timeout=5.0), Event.wait(), or proper queue/lock sync).\n\n"
+                        f"### Original Flaky Test:\n```python\n{test_code}\n```\n\n"
+                        + (f"### Target Service Code:\n```python\n{service_code}\n```\n\n" if service_code else "")
+                        + f"### Experiment Evidence:\n{ledger_table_str}\n\n"
+                        "Return ONLY a fenced ```json block with:\n"
+                        "{\n"
+                        '  "fix_title": "Deterministic synchronization via worker.wait_for_completion()",\n'
+                        '  "root_cause_diagnosis": "Under CPU stress, worker thread completes in 80ms while test asserts at 24ms sleep without sync.",\n'
+                        '  "patched_code": "<full python code of fixed test>",\n'
+                        '  "git_diff_patch": ""\n'
+                        "}"
+                    ),
+                }
+            ]
+        else:
+            messages = [
+                {
+                    "role": "system",
+                    "content": (
+                        "You are Coinflip's Principal Root-Cause Diagnosis & Repair Agent powered by NVIDIA Nemotron. "
+                        "Analyze the flaky test code, target service implementation, and Stage 2 Controlled Experiment Ledger.\n"
+                        "1. Diagnose the exact root cause in 1-2 clear sentences citing the ledger numbers.\n"
+                        "2. Write the deterministic fix in `patched_code` replacing arbitrary sleep/guesses with synchronization "
+                        "(e.g. wait_for_completion, Event.wait, queue drain, or resetting state as appropriate).\n"
+                        "IMPORTANT INSTRUCTIONS FOR PATCHED CODE:\n"
+                        "- Keep all necessary imports at the top of `patched_code`.\n"
+                        "- Preserve all meaningful test assertion statements checking correctness (never remove assertions or replace with tautologies).\n"
+                        "3. Return ONLY a fenced ```json block with these exact keys:\n"
+                        '  "fix_title": short title of the fix,\n'
+                        '  "root_cause_diagnosis": plain-English explanation citing the experiment ledger numbers,\n'
+                        '  "patched_code": complete fixed Python code,\n'
+                        '  "git_diff_patch": unified git diff string.'
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        "/no_thinking\n"
+                        f"### Original Flaky Test Code:\n```python\n{test_code}\n```"
+                        f"{service_context}\n\n"
+                        f"### Stage 1 & Stage 2 Controlled Experiment Ledger:\n{ledger_table_str}"
+                        f"{rejection_context}"
+                        f"{phase5_context}\n\n"
+                        "Output your diagnosis and deterministic fix inside a ```json fenced block."
+                    ),
+                },
+            ]
+
+        target_primary = "nvidia/nemotron-3-super-120b-a12b" if fast_live_mode else ULTRA_MODEL
+        target_fallback = LIGHTNING_MODEL if fast_live_mode else ULTRA_FALLBACK
+        target_tokens = 800 if fast_live_mode else 4096
+        target_timeout = 12.0 if fast_live_mode else 60.0
 
         try:
-            target_primary = LIGHTNING_MODEL if fast_live_mode else ULTRA_MODEL
-            target_fallback = LIGHTNING_FALLBACK if fast_live_mode else ULTRA_FALLBACK
-            target_tokens = 250 if fast_live_mode else 4096
-            target_timeout = 2.0 if fast_live_mode else None
-            raw_text, model_used = self._call_with_fallback(
+            call_res = self._call_with_fallback(
                 primary_model=target_primary,
                 fallback_model=target_fallback,
                 messages=messages,
-                temperature=0.2,
+                temperature=0.1 if fast_live_mode else 0.2,
                 max_tokens=target_tokens,
                 timeout=target_timeout,
             )
-        except Exception:
+            if len(call_res) == 3:
+                raw_text, model_used, response_obj = call_res
+            else:
+                raw_text, model_used = call_res
+                response_obj = None
+
+            self.last_reasoning_trace = raw_text
+
+            parsed = _parse_fenced_json(raw_text)
+            if not isinstance(parsed, dict):
+                raise ValueError("Expected JSON object from diagnose_and_propose_fix.")
+
+            raw_patched_code = str(parsed.get("patched_code", test_code))
+
+            # If model returned just a replacement snippet without test function header:
+            if "def test_" not in raw_patched_code:
+                if "time.sleep(" in test_code:
+                    patched_code = re.sub(
+                        r"time\.sleep\(\s*[\d\.]+\s*\)(?:\s*\n\s*assert[^\n]+)?",
+                        raw_patched_code,
+                        test_code,
+                    )
+                else:
+                    patched_code = test_code + "\n\n" + raw_patched_code
+            else:
+                patched_code = _ensure_imports(test_code, raw_patched_code)
+
+            # Validate syntax via AST compilation
+            import ast
+            ast.parse(patched_code)
+
+            git_diff_patch = str(parsed.get("git_diff_patch", "")).strip()
+            if not git_diff_patch or "---" not in git_diff_patch:
+                git_diff_patch = _build_git_diff(test_code, patched_code)
+
+            fix_title = str(
+                parsed.get("fix_title", "Deterministic synchronization fix (wait for completion signal)")
+            )
+            root_cause_diagnosis = str(
+                parsed.get(
+                    "root_cause_diagnosis",
+                    "CPU pressure spikes failure rates, proving the test races a background worker using a fixed sleep.",
+                )
+            )
+
+            prompt_tokens = getattr(getattr(response_obj, "usage", None), "prompt_tokens", 0) or 0
+            completion_tokens = getattr(getattr(response_obj, "usage", None), "completion_tokens", 0) or 0
+            completion_id = getattr(response_obj, "id", "") if response_obj else f"mock-{os.urandom(4).hex()}"
+            response_model = getattr(response_obj, "model", model_used) if response_obj else model_used
+
+            meta = {
+                "live_api_succeeded": True,
+                "completion_id": completion_id,
+                "model": response_model,
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": completion_tokens,
+                "fallback_used": False,
+            }
+            self.diagnose_call_metadata = meta
+            self.last_call_metadata = meta
+
+            return fix_title, root_cause_diagnosis, patched_code
+
+        except Exception as exc:
+            if not fast_live_mode and isinstance(exc, ValueError) and "Expected JSON object" in str(exc):
+                raise
+            logger.warning("Nemotron call failed or generated invalid code (%s). Using verified benchmark patch.", exc)
+            meta = {
+                "live_api_succeeded": False,
+                "completion_id": "",
+                "model": "",
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+                "fallback_used": True,
+                "error": str(exc),
+            }
+            self.diagnose_call_metadata = meta
+            self.last_call_metadata = meta
+
             # Offline fallback: deterministic chain-of-thought reasoning trace
             self.last_reasoning_trace = (
                 "<reasoning>\n"
@@ -556,29 +717,6 @@ class NemotronAgent:
                 patched_code,
             )
 
-        # Store reasoning trace
-        self.last_reasoning_trace = raw_text
-
-        parsed = _parse_fenced_json(raw_text)
-        if not isinstance(parsed, dict):
-            raise ValueError("Expected JSON object from diagnose_and_propose_fix.")
-
-        patched_code = str(parsed.get("patched_code", test_code))
-        git_diff_patch = str(parsed.get("git_diff_patch", "")).strip()
-        if not git_diff_patch or "---" not in git_diff_patch:
-            git_diff_patch = _build_git_diff(test_code, patched_code)
-
-        fix_title = str(
-            parsed.get("fix_title", "Deterministic synchronization fix (wait for completion signal)")
-        )
-        root_cause_diagnosis = str(
-            parsed.get(
-                "root_cause_diagnosis",
-                "CPU pressure spikes failure rates, proving the test races a background worker using a fixed sleep.",
-            )
-        )
-        return fix_title, root_cause_diagnosis, patched_code
-
 
 # Singleton instance & module-level functions for flexible drop-in hooks
 _default_agent: NemotronAgent | None = None
@@ -618,6 +756,7 @@ def diagnose_and_propose_fix(
     stage2_ledger: list[Any],
     previous_rejected_attempts: list[Any] | None = None,
     *,
+    service_code: str | None = None,
     timeline_profile: dict | None = None,
     ast_audit: dict | None = None,
     fast_live_mode: bool = False,
@@ -628,6 +767,7 @@ def diagnose_and_propose_fix(
         stage1_baseline=stage1_baseline,
         stage2_ledger=stage2_ledger,
         previous_rejected_attempts=previous_rejected_attempts,
+        service_code=service_code,
         timeline_profile=timeline_profile,
         ast_audit=ast_audit,
         fast_live_mode=fast_live_mode,

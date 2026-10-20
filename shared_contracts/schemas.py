@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 from pydantic import BaseModel, Field
 
 
@@ -234,3 +234,8 @@ class CoinflipCertificateTrace(BaseModel):
         default=None,
         description="Optional full reasoning trace captured from Nemotron 3 Ultra",
     )
+    llm_call_metadata: Optional[dict[str, Any]] = Field(
+        default=None,
+        description="Metadata from live Nebius Token Factory LLM completions (completion IDs, token usage, live status)",
+    )
+
