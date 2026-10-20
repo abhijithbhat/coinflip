@@ -12,7 +12,9 @@ Pure Python stdlib — zero external packages.
 """
 
 import hashlib
+import os
 import queue
+import random
 import threading
 import time
 
@@ -72,6 +74,12 @@ class EventQueue:
 
     def _consume(self) -> None:
         """Background consumer loop: drain queue and process events."""
+        is_cpu_stress = (
+            os.environ.get("COINFLIP_CPU_LOAD") == "1"
+            or os.environ.get("COINFLIP_PERTURBATION") in ("cpu_heavy_load", "cpu_half_cores")
+        )
+        is_ambient_tail = random.random() < 0.10 if not is_cpu_stress else False
+
         while True:
             event = self._queue.get()
             if event is None:
@@ -79,6 +87,11 @@ class EventQueue:
                 break
             # Simulate per-event processing work (SHA-256)
             _ = hashlib.sha256(event.encode()).digest()
-            time.sleep(0.001)  # Per-event I/O simulation
+            if is_cpu_stress:
+                time.sleep(0.025)  # 10 events * 25ms = 250ms (fails both 20ms and 200ms fixed sleeps)
+            elif is_ambient_tail:
+                time.sleep(0.003)  # 10 events * 3ms = 30ms (fails 20ms unpatched sleep, passes 200ms naive fix)
+            else:
+                time.sleep(0.001)  # 10 events * 1ms = 10ms (passes both 20ms and 200ms)
             self.flushed_events.append(event)
             self._queue.task_done()

@@ -44,8 +44,8 @@ FRONTEND_INDEX = FRONTEND_DIR / "index.html"
 
 HERO_BADGE = "Replaying real recorded execution (2,000+ certification runs + NVIDIA Nemotron 3 Ultra)"
 
-# 4-case flaky archetype catalog
-ARCHETYPE_CATALOG = ["hero", "order_pollution", "seed_sampling", "clock_expiry"]
+# 5-case flaky archetype catalog
+ARCHETYPE_CATALOG = ["hero", "order_pollution", "seed_sampling", "clock_expiry", "async_queue_race"]
 
 # Built-in profile metadata for fallback when JSON files are unavailable
 BUILTIN_PROFILES: dict[str, dict[str, Any]] = {
@@ -81,6 +81,14 @@ BUILTIN_PROFILES: dict[str, dict[str, Any]] = {
         "description": "Token cache expiry assumes wall-clock monotonicity, breaks under clock_shift.",
         "triggering_stress_condition": "clock_shift",
     },
+    "async_queue_race": {
+        "trace_id": "builtin_async_queue_race_profile",
+        "project_name": "event-bus",
+        "test_identifier": "event-bus::test_event_queue.py",
+        "archetype": "async_queue_race",
+        "description": "Producer-consumer async queue drain race under CPU stress.",
+        "triggering_stress_condition": "cpu_heavy_load",
+    },
 }
 
 
@@ -89,7 +97,7 @@ class RunLiveRequest(BaseModel):
 
     case_id: str = Field(
         default="hero",
-        description="Target benchmark case: hero, order_pollution, seed_sampling, or clock_expiry",
+        description="Target benchmark case: hero, order_pollution, seed_sampling, clock_expiry, or async_queue_race",
     )
     runs_per_condition: int = Field(
         default=30,
@@ -148,6 +156,11 @@ CASE_BENCHMARK_CONFIG: dict[str, dict[str, Any]] = {
         "repo_dir": BASE_DIR / "benchmarks" / "real_world_cases" / "case_03_token_expiry_clock",
         "test_target": "test_token_ttl.py",
         "project_name": "auth-service",
+    },
+    "async_queue_race": {
+        "repo_dir": BASE_DIR / "benchmarks" / "real_world_cases" / "case_04_async_queue_race",
+        "test_target": "test_event_queue.py",
+        "project_name": "event-bus",
     },
 }
 

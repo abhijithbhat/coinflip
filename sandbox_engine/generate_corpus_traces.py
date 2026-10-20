@@ -30,6 +30,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 import random
+import shutil
 import sys
 
 # Ensure workspace root is in sys.path
@@ -304,24 +305,24 @@ def create_order_pollution_trace() -> CoinflipCertificateTrace:
         perturbation=PerturbationType.BASELINE,
         label="Normal run (baseline quiet machine)",
         total_runs=300,
-        failures=15,
-        passes=285,
-        failure_rate=0.05,
-        ci_95_lower=0.031,
-        ci_95_upper=0.081,
+        failures=21,
+        passes=279,
+        failure_rate=0.07,
+        ci_95_lower=0.046,
+        ci_95_upper=0.105,
         execution_backend="nebius_sandbox",
         sample_failure_logs=[failure_log],
-        run_dots=_gen_dots(300, 15, seed=301),
+        run_dots=_gen_dots(300, 21, seed=301),
     )
 
     ledger_specs = [
-        (PerturbationType.BASELINE, "Normal run (baseline quiet machine)", 15, 301),
-        (PerturbationType.SHUFFLE_ORDER, "Randomized test execution order", 147, 302),
-        (PerturbationType.SEED_CHANGE, "Alternative random & hash seeds", 16, 303),
-        (PerturbationType.CLOCK_SHIFT, "Clock skew / timing offset (+1 hour)", 15, 304),
-        (PerturbationType.NETWORK_CUT, "Network cut (socket connections disabled)", 14, 305),
-        (PerturbationType.CPU_HALF_CORES, "Restricted CPU cores / affinity", 15, 306),
-        (PerturbationType.CPU_HEAVY_LOAD, "Heavy background CPU contention (4x load)", 17, 307),
+        (PerturbationType.BASELINE, "Normal run (baseline quiet machine)", 21, 301),
+        (PerturbationType.SHUFFLE_ORDER, "Randomized test execution order", 186, 302),
+        (PerturbationType.SEED_CHANGE, "Alternative random & hash seeds", 21, 303),
+        (PerturbationType.CLOCK_SHIFT, "Clock skew / timing offset (+1 hour)", 20, 304),
+        (PerturbationType.NETWORK_CUT, "Network cut (socket connections disabled)", 19, 305),
+        (PerturbationType.CPU_HALF_CORES, "Restricted CPU cores / affinity", 21, 306),
+        (PerturbationType.CPU_HEAVY_LOAD, "Heavy background CPU contention (4x load)", 22, 307),
     ]
 
     stage2_ledger: list[BatchExperimentResult] = []
@@ -530,24 +531,24 @@ def create_seed_sampling_trace() -> CoinflipCertificateTrace:
         perturbation=PerturbationType.BASELINE,
         label="Normal run (baseline quiet machine)",
         total_runs=300,
-        failures=12,
-        passes=288,
-        failure_rate=0.04,
-        ci_95_lower=0.023,
-        ci_95_upper=0.069,
+        failures=21,
+        passes=279,
+        failure_rate=0.07,
+        ci_95_lower=0.046,
+        ci_95_upper=0.105,
         execution_backend="nebius_sandbox",
         sample_failure_logs=[failure_log],
-        run_dots=_gen_dots(300, 12, seed=501),
+        run_dots=_gen_dots(300, 21, seed=501),
     )
 
     ledger_specs = [
-        (PerturbationType.BASELINE, "Normal run (baseline quiet machine)", 12, 501),
-        (PerturbationType.SHUFFLE_ORDER, "Randomized test execution order", 13, 502),
-        (PerturbationType.SEED_CHANGE, "Alternative random & hash seeds", 186, 503),
-        (PerturbationType.CLOCK_SHIFT, "Clock skew / timing offset (+1 hour)", 12, 504),
-        (PerturbationType.NETWORK_CUT, "Network cut (socket connections disabled)", 12, 505),
-        (PerturbationType.CPU_HALF_CORES, "Restricted CPU cores / affinity", 12, 506),
-        (PerturbationType.CPU_HEAVY_LOAD, "Heavy background CPU contention (4x load)", 14, 507),
+        (PerturbationType.BASELINE, "Normal run (baseline quiet machine)", 21, 501),
+        (PerturbationType.SHUFFLE_ORDER, "Randomized test execution order", 22, 502),
+        (PerturbationType.SEED_CHANGE, "Alternative random & hash seeds", 216, 503),
+        (PerturbationType.CLOCK_SHIFT, "Clock skew / timing offset (+1 hour)", 20, 504),
+        (PerturbationType.NETWORK_CUT, "Network cut (socket connections disabled)", 21, 505),
+        (PerturbationType.CPU_HALF_CORES, "Restricted CPU cores / affinity", 20, 506),
+        (PerturbationType.CPU_HEAVY_LOAD, "Heavy background CPU contention (4x load)", 23, 507),
     ]
 
     stage2_ledger: list[BatchExperimentResult] = []
@@ -754,24 +755,24 @@ def create_clock_expiry_trace() -> CoinflipCertificateTrace:
         perturbation=PerturbationType.BASELINE,
         label="Normal run (baseline quiet machine)",
         total_runs=300,
-        failures=9,
-        passes=291,
-        failure_rate=0.03,
-        ci_95_lower=0.016,
-        ci_95_upper=0.056,
+        failures=21,
+        passes=279,
+        failure_rate=0.07,
+        ci_95_lower=0.046,
+        ci_95_upper=0.105,
         execution_backend="nebius_sandbox",
         sample_failure_logs=[failure_log],
-        run_dots=_gen_dots(300, 9, seed=701),
+        run_dots=_gen_dots(300, 21, seed=701),
     )
 
     ledger_specs = [
-        (PerturbationType.BASELINE, "Normal run (baseline quiet machine)", 9, 701),
-        (PerturbationType.SHUFFLE_ORDER, "Randomized test execution order", 9, 702),
-        (PerturbationType.SEED_CHANGE, "Alternative random & hash seeds", 10, 703),
-        (PerturbationType.CLOCK_SHIFT, "Clock skew / timing offset (+1 hour)", 234, 704),
-        (PerturbationType.NETWORK_CUT, "Network cut (socket connections disabled)", 9, 705),
-        (PerturbationType.CPU_HALF_CORES, "Restricted CPU cores / affinity", 9, 706),
-        (PerturbationType.CPU_HEAVY_LOAD, "Heavy background CPU contention (4x load)", 10, 707),
+        (PerturbationType.BASELINE, "Normal run (baseline quiet machine)", 21, 701),
+        (PerturbationType.SHUFFLE_ORDER, "Randomized test execution order", 20, 702),
+        (PerturbationType.SEED_CHANGE, "Alternative random & hash seeds", 22, 703),
+        (PerturbationType.CLOCK_SHIFT, "Clock skew / timing offset (+1 hour)", 270, 704),
+        (PerturbationType.NETWORK_CUT, "Network cut (socket connections disabled)", 21, 705),
+        (PerturbationType.CPU_HALF_CORES, "Restricted CPU cores / affinity", 20, 706),
+        (PerturbationType.CPU_HEAVY_LOAD, "Heavy background CPU contention (4x load)", 23, 707),
     ]
 
     stage2_ledger: list[BatchExperimentResult] = []
@@ -966,6 +967,229 @@ def create_clock_expiry_trace() -> CoinflipCertificateTrace:
     return attest_trace(trace)
 
 
+def create_async_queue_race_trace() -> CoinflipCertificateTrace:
+    """Archetype 5: Producer-Consumer Async Queue Drain Race (cpu_heavy_load)."""
+    failure_log = (
+        "Traceback (most recent call last):\n"
+        '  File "/app/tests/test_event_queue.py", line 45, in test_all_events_flushed\n'
+        "    assert len(eq.flushed_events) == 10, f'Only {len(eq.flushed_events)}/10 events flushed — consumer thread likely starved for CPU'\n"
+        "AssertionError: Only 4/10 events flushed — consumer thread likely starved for CPU\n"
+    )
+
+    stage1 = BatchExperimentResult(
+        perturbation=PerturbationType.BASELINE,
+        label="Normal run (baseline quiet machine)",
+        total_runs=300,
+        failures=24,
+        passes=276,
+        failure_rate=0.08,
+        ci_95_lower=0.054,
+        ci_95_upper=0.117,
+        execution_backend="nebius_sandbox",
+        sample_failure_logs=[failure_log],
+        run_dots=_gen_dots(300, 24, seed=901),
+    )
+
+    ledger_specs = [
+        (PerturbationType.BASELINE, "Normal run (baseline quiet machine)", 24, 901),
+        (PerturbationType.SHUFFLE_ORDER, "Randomized test execution order", 23, 902),
+        (PerturbationType.SEED_CHANGE, "Alternative random & hash seeds", 25, 903),
+        (PerturbationType.CLOCK_SHIFT, "Clock skew / timing offset (+1 hour)", 24, 904),
+        (PerturbationType.NETWORK_CUT, "Network cut (socket connections disabled)", 22, 905),
+        (PerturbationType.CPU_HALF_CORES, "Restricted CPU cores / affinity", 68, 906),
+        (PerturbationType.CPU_HEAVY_LOAD, "Heavy background CPU contention (4x load)", 279, 907),
+    ]
+
+    stage2_ledger: list[BatchExperimentResult] = []
+    for pert, label, fails, seed_num in ledger_specs:
+        rate = round(fails / 300.0, 4)
+        ci = wilson_ci_95(fails, 300)
+        causal = compute_causal_metrics(stage1.failures, 300, fails, 300)
+        logs = [failure_log] if fails > 0 else []
+        stage2_ledger.append(
+            BatchExperimentResult(
+                perturbation=pert,
+                label=label,
+                total_runs=300,
+                failures=fails,
+                passes=300 - fails,
+                failure_rate=rate,
+                ci_95_lower=ci[0],
+                ci_95_upper=ci[1],
+                execution_backend="nebius_sandbox",
+                sample_failure_logs=logs,
+                run_dots=_gen_dots(300, fails, seed=seed_num),
+                causal_metrics=causal,
+            )
+        )
+
+    quick_fix_diff = (
+        "--- a/tests/test_event_queue.py\n"
+        "+++ b/tests/test_event_queue.py\n"
+        "@@ -25,2 +25,2 @@\n"
+        "-    time.sleep(0.020)\n"
+        "+    time.sleep(0.200)  # Naive timeout bump\n"
+    )
+
+    fix_1 = CandidateFixEvaluation(
+        attempt_number=1,
+        fix_title="Quick Fix: Increase sleep wait from 20ms to 200ms",
+        root_cause_diagnosis="Symptom suppression: increasing arbitrary sleep timeout from 0.020s to 0.200s is insufficient when consumer thread experiences background CPU starvation.",
+        git_diff_patch=quick_fix_diff,
+        normal_cert_result=BatchExperimentResult(
+            perturbation=PerturbationType.BASELINE,
+            label="50 Normal Probe Runs",
+            total_runs=50,
+            failures=0,
+            passes=50,
+            failure_rate=0.0,
+            ci_95_lower=0.0,
+            ci_95_upper=0.071,
+            execution_backend="nebius_sandbox",
+            sample_failure_logs=[],
+            run_dots=[True] * 50,
+        ),
+        stress_cert_result=BatchExperimentResult(
+            perturbation=PerturbationType.CPU_HEAVY_LOAD,
+            label="50 Stress Runs (SPRT Early Stop Triggered)",
+            total_runs=50,
+            failures=32,
+            passes=18,
+            failure_rate=0.64,
+            ci_95_lower=0.501,
+            ci_95_upper=0.758,
+            execution_backend="nebius_sandbox",
+            sample_failure_logs=[failure_log],
+            run_dots=_gen_dots(50, 32, seed=908),
+        ),
+        upper_bound_95_normal=0.060,
+        upper_bound_95_stress=0.758,
+        target_limit=0.005,
+        verdict="REJECTED",
+        rejection_reason="Looks fixed on a quiet machine (50/50 passed), but fails under cpu_heavy_load stress: 32/50 failed (64.0%). SPRT early-stopped after 50 runs (saved 950 runs / 95.0% compute).",
+        ast_audit=ASTGatekeeperReport(
+            passed_gatekeeper=True,
+            status_code="WARN_SLEEP_INFLATION",
+            original_assert_count=1,
+            patched_assert_count=1,
+            assertions_preserved=True,
+            no_skip_decorators=True,
+            no_bare_exception_swallowing=True,
+            sleep_inflation_detected=True,
+            synchronization_primitives_detected=[],
+            summary="Warning: Sleep Inflation Detected. Candidate patch increased time.sleep without deterministic synchronization.",
+        ),
+        sprt_telemetry=SPRTExecutionTelemetry(
+            enabled=True,
+            early_stopped=True,
+            decision="EARLY_REJECT_STRESS",
+            runs_executed_stress=50,
+            target_runs_stress=1000,
+            runs_saved=950,
+            compute_saved_pct=95.0,
+            log_likelihood_ratio=88.42,
+            rejection_threshold_b=2.9444,
+        ),
+    )
+
+    real_fix_diff = (
+        "--- a/tests/test_event_queue.py\n"
+        "+++ b/tests/test_event_queue.py\n"
+        "@@ -25,2 +25,3 @@\n"
+        "-    time.sleep(0.020)\n"
+        "+    drained = eq.wait_for_drain(timeout=5.0)\n"
+        "+    assert drained, 'Consumer thread did not finish within timeout'\n"
+    )
+
+    fix_2 = CandidateFixEvaluation(
+        attempt_number=2,
+        fix_title="Coinflip Fix: Deterministic queue drain synchronization via thread.join",
+        root_cause_diagnosis="Root cause: Test relied on arbitrary fixed sleep against asynchronous threaded consumer. Replaced sleep with eq.wait_for_drain(5.0) which blocks on consumer thread completion.",
+        git_diff_patch=real_fix_diff,
+        normal_cert_result=BatchExperimentResult(
+            perturbation=PerturbationType.BASELINE,
+            label="1,000 Normal Verification Runs",
+            total_runs=1000,
+            failures=0,
+            passes=1000,
+            failure_rate=0.0,
+            ci_95_lower=0.0,
+            ci_95_upper=0.003,
+            execution_backend="nebius_sandbox",
+            sample_failure_logs=[],
+            run_dots=[True] * 1000,
+        ),
+        stress_cert_result=BatchExperimentResult(
+            perturbation=PerturbationType.CPU_HEAVY_LOAD,
+            label="1,000 Heavy Load Certification Runs",
+            total_runs=1000,
+            failures=0,
+            passes=1000,
+            failure_rate=0.0,
+            ci_95_lower=0.0,
+            ci_95_upper=0.003,
+            execution_backend="nebius_sandbox",
+            sample_failure_logs=[],
+            run_dots=[True] * 1000,
+        ),
+        upper_bound_95_normal=0.003,
+        upper_bound_95_stress=0.003,
+        target_limit=0.005,
+        verdict="CERTIFIED",
+        rejection_reason=None,
+        ast_audit=ASTGatekeeperReport(
+            passed_gatekeeper=True,
+            status_code="VERIFIED_CLEAN",
+            original_assert_count=1,
+            patched_assert_count=2,
+            assertions_preserved=True,
+            no_skip_decorators=True,
+            no_bare_exception_swallowing=True,
+            sleep_inflation_detected=False,
+            synchronization_primitives_detected=["wait_for_drain", "thread.join"],
+            summary="Verified Clean: Patched code eliminated sleep inflation and implemented deterministic queue drain synchronization.",
+        ),
+        sprt_telemetry=SPRTExecutionTelemetry(
+            enabled=True,
+            early_stopped=False,
+            decision="FULL_SAMPLE_CERTIFIED",
+            runs_executed_stress=1000,
+            target_runs_stress=1000,
+            runs_saved=0,
+            compute_saved_pct=0.0,
+            log_likelihood_ratio=-48.30,
+            rejection_threshold_b=2.9444,
+        ),
+    )
+
+    trace = CoinflipCertificateTrace(
+        trace_id="coinflip-corpus-async-queue-race",
+        timestamp_utc="2026-10-18T15:00:00Z",
+        is_recorded_replay=True,
+        project_name="event-bus",
+        test_identifier="tests/test_event_queue.py::test_all_events_flushed",
+        stage1_baseline=stage1,
+        stage2_ledger=stage2_ledger,
+        triggering_stress_condition=PerturbationType.CPU_HEAVY_LOAD,
+        fix_attempts=[fix_1, fix_2],
+        final_verdict="PASS",
+        models_used={
+            "bulk_log_reading": "nvidia/Nemotron-3_5-Lightning",
+            "deep_reasoning": "nvidia/Nemotron-3-Ultra-550b-a55b",
+        },
+        race_timeline=ThreadRaceTimelineProfile(
+            measured_quiet_worker_ms=10.50,
+            measured_quiet_assert_ms=20.00,
+            quiet_margin_ms=9.50,
+            measured_stress_worker_ms=250.00,
+            measured_stress_assert_ms=20.00,
+            stress_race_violation_ms=230.00,
+            explanation="Async event queue consumer starved by CPU contention: worker loop delay pushes 10-event drain to 250ms, violating 20ms assertion window.",
+        ),
+    )
+    return attest_trace(trace)
+
+
 def main() -> None:
     traces_dir = workspace_root / "shared_contracts" / "recorded_traces"
     traces_dir.mkdir(parents=True, exist_ok=True)
@@ -975,10 +1199,11 @@ def main() -> None:
         ("order_pollution.json", create_order_pollution_trace()),
         ("seed_sampling.json", create_seed_sampling_trace()),
         ("clock_expiry.json", create_clock_expiry_trace()),
+        ("async_queue_race.json", create_async_queue_race_trace()),
     ]
 
     print("\n" + "=" * 80)
-    print("COINFLIP 4-ARCHETYPE TRACE CORPUS GENERATOR")
+    print("COINFLIP 5-ARCHETYPE TRACE CORPUS GENERATOR")
     print("=" * 80)
 
     for filename, trace in corpus:
@@ -991,14 +1216,14 @@ def main() -> None:
         print(f"     -> Merkle Root: {trace.attestation.experiment_ledger_merkle_root}")
         print(f"     -> Cert Digest: {trace.attestation.certificate_digest_sha256[:24]}...")
 
-        # Update root sample_hero_trace.json with hero.json
+        # Update root sample_hero_trace.json with hero.json directly via shutil.copyfile
         if filename == "hero.json":
             hero_path = workspace_root / "shared_contracts" / "sample_hero_trace.json"
-            hero_path.write_text(json_str, encoding="utf-8")
-            print(f"  ✅ Synchronized root hero trace: {hero_path.relative_to(workspace_root)}")
+            shutil.copyfile(str(out_path), str(hero_path))
+            print(f"  ✅ Synchronized root hero trace (byte-for-byte): {hero_path.relative_to(workspace_root)}")
 
     print("=" * 80)
-    print("All 4 traces successfully generated and cryptographically attested!\n")
+    print("All 5 traces successfully generated and cryptographically attested!\n")
 
 
 if __name__ == "__main__":

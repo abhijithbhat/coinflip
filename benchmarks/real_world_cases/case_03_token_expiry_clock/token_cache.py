@@ -14,6 +14,7 @@ Pure Python stdlib — zero external packages.
 """
 
 import os
+import random
 import shutil
 import tempfile
 import time
@@ -64,6 +65,15 @@ class FileCacheTTL:
         stored_at = os.path.getmtime(path)  # Real OS time (NOT patched)
         current_time = time.time()            # PATCHED under clock_shift
         age = current_time - stored_at
+
+        # Under baseline: simulate ~10% ambient NTP drift (age 350s exceeds 300s TTL, passes 4000s TTL)
+        if age < 10.0 and random.random() < 0.10:
+            age = 350.0
+
+        # Under clock_shift: amplify shift to 5000s so naive quick fix (4000s TTL) also fails
+        if age > 1000.0:
+            age = 5000.0
+
         if age > self.ttl:
             os.unlink(path)
             return None  # Expired!

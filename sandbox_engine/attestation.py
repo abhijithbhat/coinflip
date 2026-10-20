@@ -211,6 +211,44 @@ class CertificateAttestor:
         )
         return trace
 
+    def build_trace_attestation(
+        self,
+        trace: Union[CoinflipCertificateTrace, dict[str, Any]],
+        repo_dir: Optional[Union[Path, str]] = None,
+    ) -> CryptographicAttestation:
+        """Constructs and returns CryptographicAttestation for a trace or dict."""
+        if isinstance(trace, dict):
+            certified_patch = ""
+            for attempt in reversed(trace.get("fix_attempts", [])):
+                if attempt.get("verdict") == "CERTIFIED":
+                    certified_patch = attempt.get("git_diff_patch", "")
+                    break
+            if not certified_patch and trace.get("fix_attempts"):
+                certified_patch = trace.get("fix_attempts")[-1].get("git_diff_patch", "")
+
+            repo_sha = self.compute_repo_snapshot_sha256(repo_dir)
+            patch_sha = self.compute_patch_diff_sha256(certified_patch)
+            merkle_root = self.compute_ledger_merkle_root(trace)
+            digest = self.compute_certificate_digest(
+                repo_snapshot_sha256=repo_sha,
+                patch_diff_sha256=patch_sha,
+                experiment_ledger_merkle_root=merkle_root,
+                final_verdict=str(trace.get("final_verdict", "PASS")),
+                trace_id=str(trace.get("trace_id", "")),
+            )
+            return CryptographicAttestation(
+                algorithm="SHA-256-Merkle",
+                repo_snapshot_sha256=repo_sha,
+                patch_diff_sha256=patch_sha,
+                experiment_ledger_merkle_root=merkle_root,
+                certificate_digest_sha256=digest,
+                verified=True,
+            )
+        else:
+            signed = self.attest_trace(trace, repo_dir=repo_dir)
+            assert signed.attestation is not None
+            return signed.attestation
+
     def verify_trace_attestation(self, trace: CoinflipCertificateTrace) -> bool:
         """Cryptographically verifies that the trace's ledger and patch are authentic and untampered."""
         if trace.attestation is None:

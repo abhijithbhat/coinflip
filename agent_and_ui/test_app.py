@@ -221,6 +221,47 @@ class TestRunLiveEndpoint:
             assert data["execution_mode_badge"] == "Live Execution (Coinflip Engine)"
             assert "streak_curve_data" in data
 
+    @pytest.mark.parametrize("case_id", ["hero", "order_pollution", "seed_sampling", "clock_expiry", "async_queue_race"])
+    def test_run_live_all_5_cases(self, case_id: str):
+        """Tests that all 5 benchmark cases are dispatched properly via POST /api/run-live."""
+        mock_baseline = BatchExperimentResult(
+            perturbation=PerturbationType.BASELINE,
+            label="Baseline (normal OS conditions)",
+            total_runs=30,
+            failures=2,
+            passes=28,
+            failure_rate=0.067,
+            ci_95_lower=0.018,
+            ci_95_upper=0.213,
+            execution_backend="local_isolated",
+            sample_failure_logs=[],
+            run_dots=[True] * 28 + [False] * 2,
+        )
+
+        mock_trace = CoinflipCertificateTrace(
+            trace_id=f"test_live_{case_id}",
+            timestamp_utc="2026-10-18T12:00:00Z",
+            is_recorded_replay=False,
+            project_name=f"project-{case_id}",
+            test_identifier=f"test_{case_id}.py",
+            stage1_baseline=mock_baseline,
+            stage2_ledger=[mock_baseline],
+            triggering_stress_condition=PerturbationType.CPU_HEAVY_LOAD,
+            fix_attempts=[],
+            final_verdict="NOT_YET_CERTIFIED",
+            models_used={"bulk_log_reading": "fast", "deep_reasoning": "ultra"},
+        )
+
+        with patch("sandbox_engine.orchestrator.CoinflipOrchestrator.run", new_callable=AsyncMock) as mock_run:
+            mock_run.return_value = mock_trace
+            response = client.post("/api/run-live", json={"case_id": case_id, "runs_per_condition": 30})
+            assert response.status_code == 200
+            data = response.json()
+            assert data["trace_id"] == f"test_live_{case_id}"
+            assert data["is_fallback"] is False
+            assert "streak_curve_data" in data
+            assert mock_run.called
+
 
 # -------------------------------------------------------------------------------
 # 6. Root & Static Mounting
@@ -308,6 +349,7 @@ class TestArchetypeCatalog:
         assert "order_pollution" in names
         assert "seed_sampling" in names
         assert "clock_expiry" in names
+        assert "async_queue_race" in names
 
     def test_get_archetype_by_name_hero(self):
         response = client.get("/api/traces/hero")
@@ -325,10 +367,21 @@ class TestArchetypeCatalog:
     def test_get_archetype_by_name_seed_sampling(self):
         response = client.get("/api/traces/seed_sampling")
         assert response.status_code == 200
+        data = response.json()
+        assert "streak_curve_data" in data
 
     def test_get_archetype_by_name_clock_expiry(self):
         response = client.get("/api/traces/clock_expiry")
         assert response.status_code == 200
+        data = response.json()
+        assert "streak_curve_data" in data
+
+    def test_get_archetype_by_name_async_queue_race(self):
+        response = client.get("/api/traces/async_queue_race")
+        assert response.status_code == 200
+        data = response.json()
+        assert "trace_id" in data
+        assert "streak_curve_data" in data
 
 
 # -------------------------------------------------------------------------------
@@ -363,6 +416,14 @@ class TestStreamLiveEndpoint:
         for line in data_lines:
             parsed = json.loads(line)
             assert isinstance(parsed, dict)
+
+    def test_stream_live_with_custom_case_id(self):
+        response = client.get("/api/stream-live?case_id=async_queue_race")
+        assert response.status_code == 200
+        assert "text/event-stream" in response.headers.get("content-type", "")
+        body = response.text
+        assert "stage1_measure" in body
+        assert "done" in body
 
 
 # -------------------------------------------------------------------------------

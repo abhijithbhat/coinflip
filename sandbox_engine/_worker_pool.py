@@ -205,6 +205,62 @@ def run_worker_chunk(
     return results
 
 
+def run_inprocess_worker_pool(
+    temp_dir: Path | str,
+    test_target: str,
+    perturbation: PerturbationType | str,
+    run_ids: list[int],
+    base_seed: int = 1000,
+    num_workers: int | None = None,
+) -> list[SingleRunResult]:
+    """Runs a batch of test runs across in-process workers, throttling non-stress runs.
+
+    When perturbation is not in ('cpu_heavy_load', 'cpu_half_cores'), caps num_workers to
+    min(2, max(1, len(run_ids) // 10)) to guarantee zero self-inflicted CPU contention
+    during baseline and quiet runs.
+    """
+    if isinstance(temp_dir, str):
+        temp_dir = Path(temp_dir).resolve()
+    if isinstance(perturbation, str):
+        perturbation = PerturbationType(perturbation)
+
+    pert_val = perturbation.value if hasattr(perturbation, "value") else str(perturbation)
+    if pert_val not in ("cpu_heavy_load", "cpu_half_cores"):
+        capped = min(2, max(1, len(run_ids) // 10))
+        num_workers = min(num_workers, capped) if num_workers is not None else capped
+    else:
+        num_workers = num_workers or min(len(run_ids), max(4, os.cpu_count() or 4))
+
+    if num_workers <= 1 or len(run_ids) <= 1:
+        return run_worker_chunk(
+            temp_dir=temp_dir,
+            test_target=test_target,
+            perturbation=perturbation,
+            run_ids=run_ids,
+            base_seed=base_seed,
+        )
+
+    # Partition run_ids across worker chunks
+    chunks: list[list[int]] = [[] for _ in range(num_workers)]
+    for i, rid in enumerate(run_ids):
+        chunks[i % num_workers].append(rid)
+    active_chunks = [c for c in chunks if c]
+
+    all_results: list[SingleRunResult] = []
+    for chunk in active_chunks:
+        chunk_res = run_worker_chunk(
+            temp_dir=temp_dir,
+            test_target=test_target,
+            perturbation=perturbation,
+            run_ids=chunk,
+            base_seed=base_seed,
+        )
+        all_results.extend(chunk_res)
+
+    all_results.sort(key=lambda r: r.run_id)
+    return all_results
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Coinflip Test Chunk Worker")
     parser.add_argument("--temp-dir", required=True, help="Path to isolated test workspace")

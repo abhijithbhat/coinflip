@@ -62,7 +62,7 @@ class CoinflipOrchestrator:
         self.output_trace_path = (
             Path(output_trace_path).resolve()
             if output_trace_path
-            else Path(__file__).resolve().parent.parent / "shared_contracts" / "sample_hero_trace.json"
+            else None
         )
 
         # Injectable Stats Engine: dynamically load Tejas's module if available
@@ -431,10 +431,11 @@ class CoinflipOrchestrator:
         })
 
         # Validate schema and persist trace
-        trace_json = trace.model_dump_json(indent=2)
-        self.output_trace_path.parent.mkdir(parents=True, exist_ok=True)
-        self.output_trace_path.write_text(trace_json, encoding="utf-8")
-        logger.info("Saved validated CoinflipCertificateTrace to %s", self.output_trace_path)
+        if self.output_trace_path:
+            trace_json = trace.model_dump_json(indent=2)
+            self.output_trace_path.parent.mkdir(parents=True, exist_ok=True)
+            self.output_trace_path.write_text(trace_json, encoding="utf-8")
+            logger.info("Saved validated CoinflipCertificateTrace to %s", self.output_trace_path)
 
         return trace
 

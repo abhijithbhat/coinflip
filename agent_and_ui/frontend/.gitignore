@@ -4,3 +4,5 @@ node_modules/
 .tanstack/
 .vite/
 *.log
+.lovable/
+.wrangler/

@@ -59,6 +59,12 @@ CASE_REGISTRY: dict[str, dict[str, Any]] = {
         "project_name": "auth-service",
         "title": "JWT Token TTL Boundary Race",
     },
+    "async_queue_race": {
+        "repo_dir": WORKSPACE_ROOT / "benchmarks" / "real_world_cases" / "case_04_async_queue_race",
+        "test_target": "test_event_queue.py",
+        "project_name": "event-bus",
+        "title": "Producer-Consumer Async Queue Drain Race",
+    },
 }
 
 
@@ -173,7 +179,7 @@ async def main_async() -> int:
     parser.add_argument(
         "--case",
         default="hero",
-        choices=["hero", "order_pollution", "seed_sampling", "clock_expiry"],
+        choices=list(CASE_REGISTRY.keys()),
         help="Benchmark archetype case to run (default: hero)",
     )
     parser.add_argument(
@@ -244,11 +250,13 @@ async def main_async() -> int:
 
     if args.output:
         out_path = Path(args.output).resolve()
+        out_path.parent.mkdir(parents=True, exist_ok=True)
         out_path.write_text(md_comment, encoding="utf-8")
         logger.info("Wrote PR comment to %s", out_path)
 
     if args.json_output:
         json_path = Path(args.json_output).resolve()
+        json_path.parent.mkdir(parents=True, exist_ok=True)
         json_path.write_text(json.dumps(enriched, indent=2), encoding="utf-8")
         logger.info("Wrote trace JSON to %s", json_path)
 

@@ -280,6 +280,7 @@ export const BENCHMARK_CASES = [
   { id: "order_pollution", name: "Global Config Cache Pollution", trigger: "shuffle_order" },
   { id: "seed_sampling", name: "Reservoir Sampler Seed Sensitivity", trigger: "seed_change" },
   { id: "clock_expiry", name: "JWT Token TTL Boundary Race", trigger: "clock_shift" },
+  { id: "async_queue_race", name: "Async Queue Drain Race", trigger: "cpu_heavy_load" },
 ] as const;
 export type CaseId = typeof BENCHMARK_CASES[number]["id"];
 
@@ -298,7 +299,8 @@ export function fallbackForCase(id: CaseId): Trace {
     order_pollution: { test: "test_config.py::test_default_region", cause: "A previous test mutates a shared configuration cache. Isolate configuration per test and restore global state.", quick: "+    config.region = 'eu'", fix: "+    config = ConfigCache.fresh()" },
     seed_sampling: { test: "test_sampler.py::test_sample_distribution", cause: "A random sample is checked against an exact count. Use a fixed seed for reproducibility and validate the sampling invariant.", quick: "+    random.seed(42)", fix: "+    assert sampler.invariants_hold()" },
     clock_expiry: { test: "test_token.py::test_token_valid", cause: "The assertion races the JWT expiry boundary. Freeze the test clock and explicitly test each side of the TTL boundary.", quick: "+    ttl_seconds = 60", fix: "+    clock.freeze(issued_at + ttl_seconds - 1)" },
-  }[id];
+    async_queue_race: { test: "test_event_queue.py::test_all_events_flushed", cause: "Fixed sleep races asynchronous threaded consumer under CPU contention. Use wait_for_drain() to synchronize queue completion.", quick: "+    time.sleep(0.200)", fix: "+    eq.wait_for_drain(5.0)" },
+  }[id as "order_pollution" | "seed_sampling" | "clock_expiry" | "async_queue_race"];
   const rows = FALLBACK_TRACE.stage2_ledger.map(c => {
     const f = c.perturbation === benchmark.trigger ? 174 : 18;
     const [lo, hi] = wilson(f, 300);
