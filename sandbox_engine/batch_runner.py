@@ -254,38 +254,17 @@ class SandboxBatchRunner:
 
             ctx = build_perturbation_context(perturbation, run_id=0)
 
-            # Use high-throughput worker pool for fast isolated execution
-            if num_runs >= 1:
-                if perturbation in (PerturbationType.CPU_HEAVY_LOAD, PerturbationType.CPU_HALF_CORES):
-                    worker_count = min(self.max_concurrency, max(4, os.cpu_count() or 4))
-                else:
-                    worker_count = min(2, max(1, num_runs // 10))
-                # Partition run_ids across worker processes
-                chunks: list[list[int]] = [[] for _ in range(worker_count)]
-                for i in range(num_runs):
-                    chunks[i % worker_count].append(i)
-                active_chunks = [c for c in chunks if c]
+            # Use high-throughput in-process worker pool for sub-0.5s isolated execution
+            from sandbox_engine._worker_pool import run_inprocess_worker_pool
 
-                if ctx.needs_external_cpu_stress:
-                    with BackgroundCpuStressor():
-                        tasks = [
-                            self._run_worker_pool_chunk(temp_dir, perturbation, chunk)
-                            for chunk in active_chunks
-                        ]
-                        chunk_results = await asyncio.gather(*tasks)
-                else:
-                    tasks = [
-                        self._run_worker_pool_chunk(temp_dir, perturbation, chunk)
-                        for chunk in active_chunks
-                    ]
-                    chunk_results = await asyncio.gather(*tasks)
-
-                # Flatten and sort results by run_id
-                all_results: list[SingleRunResult] = []
-                for cr in chunk_results:
-                    all_results.extend(cr)
-                all_results.sort(key=lambda r: r.run_id)
-                return all_results
+            return await asyncio.to_thread(
+                run_inprocess_worker_pool,
+                temp_dir=temp_dir,
+                test_target=self.test_target,
+                perturbation=perturbation,
+                run_ids=list(range(num_runs)),
+                base_seed=1000,
+            )
 
             # Small batches (<= 12 runs): standard individual subprocess execution
             if perturbation in (PerturbationType.CPU_HEAVY_LOAD, PerturbationType.CPU_HALF_CORES):

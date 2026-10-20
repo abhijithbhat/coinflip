@@ -152,6 +152,52 @@ def test_zero_generator_artifacts() -> None:
     print("  [PASS] Zero .lovable, .wrangler, or generator files exist in repository.")
 
 
+def test_live_execution_latency_and_statistical_integrity() -> None:
+    """Verifies that live mini-batch execution runs in < 6.5s and maintains statistical integrity."""
+    print("\n[AUDIT CHECK 5] Verifying live mini-batch runtime (< 6.5s) and statistical integrity...")
+    import time
+    from starlette.testclient import TestClient
+    from agent_and_ui.app import app
+
+    client = TestClient(app)
+    t0 = time.perf_counter()
+    resp = client.post("/api/run-live", json={"case_id": "hero", "runs_per_condition": 30})
+    elapsed = time.perf_counter() - t0
+
+    assert resp.status_code == 200, f"run-live failed with {resp.status_code}: {resp.text}"
+    data = resp.json()
+
+    print(f"  Live run-live duration: {elapsed:.2f}s (target < 6.5s)")
+    assert elapsed < 6.5, f"Live mini-batch took {elapsed:.2f}s, exceeding 6.5s ceiling!"
+    assert data.get("is_fallback") is False, "Live execution fell back to recorded trace!"
+    assert data.get("execution_mode_badge") == "Live Execution (Coinflip Engine)"
+
+    # Stage 1 baseline validation
+    s1_fails = data["stage1_baseline"]["failures"]
+    s1_total = data["stage1_baseline"]["total_runs"]
+    s1_rate = s1_fails / max(1, s1_total)
+    print(f"  Stage 1 baseline: {s1_fails}/{s1_total} ({s1_rate:.1%})")
+    assert 0.03 <= s1_rate <= 0.20, f"Stage 1 baseline rate {s1_rate:.3f} outside expected 3%-20% window"
+
+    # Stage 2 stress spike validation
+    stress_item = next(
+        (it for it in data["stage2_ledger"] if it["perturbation"] in ("cpu_half_cores", "cpu_heavy_load")),
+        None,
+    )
+    assert stress_item is not None, "Missing CPU stress condition in Stage 2 ledger"
+    stress_rate = stress_item["failure_rate"]
+    print(f"  Stage 2 stress: {stress_item['failures']}/{stress_item['total_runs']} ({stress_rate:.1%})")
+    assert stress_rate >= 0.80, f"Stage 2 stress rate {stress_rate:.3f} below 80% threshold"
+
+    # Stage 4 fix evaluations
+    attempts = data["fix_attempts"]
+    assert len(attempts) >= 2, f"Expected at least 2 fix attempts, got {len(attempts)}"
+    assert attempts[0]["verdict"] in ("REJECTED", "BROKEN"), f"Attempt 1 should be REJECTED, got {attempts[0]['verdict']}"
+    assert attempts[1]["verdict"] == "CERTIFIED", f"Attempt 2 should be CERTIFIED, got {attempts[1]['verdict']}"
+
+    print(f"  [PASS] Live mini-batch completed in {elapsed:.2f}s with perfect statistical integrity.")
+
+
 def main() -> None:
     print("=" * 80)
     print("COINFLIP PHASE 7 AUDIT REMEDIATION VERIFICATION SUITE")
@@ -161,6 +207,7 @@ def main() -> None:
     test_all_5_recorded_traces_and_attestation()
     test_ci_gatekeeper_markdown_report()
     test_zero_generator_artifacts()
+    test_live_execution_latency_and_statistical_integrity()
 
     print("\n" + "=" * 80)
     print("✅ ALL PHASE 7 AUDIT REMEDIATION VERIFICATIONS PASSED (100%)")

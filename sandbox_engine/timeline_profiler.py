@@ -33,6 +33,7 @@ class SubMillisecondTimelineProfiler:
         assert_wait_ms: float = 20.0,
         num_stress_burners: int = 4,
         rounds: int = 3,
+        fast_mode: bool = False,
     ) -> ThreadRaceTimelineProfile:
         """Profiles the execution timeline under baseline quiet vs cpu_heavy_load stress.
 
@@ -41,11 +42,17 @@ class SubMillisecondTimelineProfiler:
             assert_wait_ms: Milliseconds test waits before executing assertion check.
             num_stress_burners: Number of CPU burner threads to spawn under stress.
             rounds: Number of measurement rounds to average for timing stability.
+            fast_mode: If True, uses reduced iteration counts for sub-0.2s profiling.
 
         Returns:
             ThreadRaceTimelineProfile: Validated telemetry showing quiet safety margin
             and negative stress race violation delta.
         """
+        if fast_mode:
+            worker_work_iterations = 20_000
+            assert_wait_ms = 5.0
+            num_stress_burners = 2
+            rounds = 1
         # 1. Profile under Quiet Baseline
         quiet_worker_durations: list[float] = []
         quiet_assert_durations: list[float] = []

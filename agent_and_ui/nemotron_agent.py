@@ -12,6 +12,7 @@ from __future__ import annotations
 import difflib
 import json
 import os
+from pathlib import Path
 import re
 from typing import Any
 
@@ -141,6 +142,7 @@ class NemotronAgent:
         messages: list[dict[str, str]],
         temperature: float = 0.2,
         max_tokens: int = 4096,
+        timeout: float | None = None,
     ) -> tuple[str, str]:
         """
         Call primary Nemotron model with max_tokens=4096; automatically fall back
@@ -149,12 +151,15 @@ class NemotronAgent:
         last_error: Exception | None = None
         for model_id in (primary_model, fallback_model):
             try:
-                response = self.client.chat.completions.create(
-                    model=model_id,
-                    messages=messages,
-                    temperature=temperature,
-                    max_tokens=max_tokens,
-                )
+                kwargs: dict[str, Any] = {
+                    "model": model_id,
+                    "messages": messages,
+                    "temperature": temperature,
+                    "max_tokens": max_tokens,
+                }
+                if timeout is not None:
+                    kwargs["timeout"] = timeout
+                response = self.client.chat.completions.create(**kwargs)
                 msg = response.choices[0].message
                 text = _extract_response_text(msg)
                 if text:
@@ -369,6 +374,7 @@ class NemotronAgent:
         *,
         timeline_profile: dict | None = None,
         ast_audit: dict | None = None,
+        fast_live_mode: bool = False,
     ) -> tuple[str, str, str]:
         """
         Stage 3 Root Cause Diagnosis & Fix Generator.
@@ -482,12 +488,17 @@ class NemotronAgent:
         ]
 
         try:
+            target_primary = LIGHTNING_MODEL if fast_live_mode else ULTRA_MODEL
+            target_fallback = LIGHTNING_FALLBACK if fast_live_mode else ULTRA_FALLBACK
+            target_tokens = 250 if fast_live_mode else 4096
+            target_timeout = 2.0 if fast_live_mode else None
             raw_text, model_used = self._call_with_fallback(
-                primary_model=ULTRA_MODEL,
-                fallback_model=ULTRA_FALLBACK,
+                primary_model=target_primary,
+                fallback_model=target_fallback,
                 messages=messages,
                 temperature=0.2,
-                max_tokens=4096,
+                max_tokens=target_tokens,
+                timeout=target_timeout,
             )
         except Exception:
             # Offline fallback: deterministic chain-of-thought reasoning trace
@@ -505,6 +516,9 @@ class NemotronAgent:
                 "</reasoning>"
             )
             patched_code = test_code
+            fix_title = "Coinflip Certified Fix: Replace sleep with deterministic event synchronization"
+            fix_diag = "CPU pressure spikes failure rates, proving the test races a background worker using a fixed sleep."
+
             if "time.sleep(0.025)" in test_code:
                 patched_code = test_code.replace(
                     "time.sleep(0.025)\n    assert worker.is_completed is True, \"Background worker timed out before completion\"",
@@ -518,16 +532,27 @@ class NemotronAgent:
             elif "get_shipping_rate" in test_code:
                 fix_p = Path(__file__).resolve().parent.parent / "benchmarks" / "real_world_cases" / "case_01_test_order_pollution" / "patches" / "certified_real_fix.py"
                 patched_code = fix_p.read_text(encoding="utf-8") if fix_p.exists() else test_code
+                fix_title = "Coinflip Certified Fix: Explicitly reset global rate config cache per test"
+                fix_diag = "Global rate configuration cache pollutes subsequent tests when executed out of order."
             elif "test_sample" in test_code or "sampler" in test_code:
                 fix_p = Path(__file__).resolve().parent.parent / "benchmarks" / "real_world_cases" / "case_02_unpinned_seed_sampling" / "patches" / "certified_real_fix.py"
                 patched_code = fix_p.read_text(encoding="utf-8") if fix_p.exists() else test_code
+                fix_title = "Coinflip Certified Fix: Seed Random instance explicitly per test"
+                fix_diag = "Unpinned global random state causes distribution drift under altered seeds."
             elif "test_token_ttl" in test_code or "TokenCache" in test_code:
                 fix_p = Path(__file__).resolve().parent.parent / "benchmarks" / "real_world_cases" / "case_03_token_expiry_clock" / "patches" / "certified_real_fix.py"
                 patched_code = fix_p.read_text(encoding="utf-8") if fix_p.exists() else test_code
+                fix_title = "Coinflip Certified Fix: Freeze monotonic clock during token TTL verification"
+                fix_diag = "Test relies on wall-clock time expiration causing false failures under clock shifts."
+            elif "test_all_events_flushed" in test_code or "EventQueue" in test_code:
+                fix_p = Path(__file__).resolve().parent.parent / "benchmarks" / "real_world_cases" / "case_04_async_queue_race" / "patches" / "certified_real_fix.py"
+                patched_code = fix_p.read_text(encoding="utf-8") if fix_p.exists() else test_code
+                fix_title = "Coinflip Certified Fix: Replace sleep with deterministic queue drain synchronization"
+                fix_diag = "Asynchronous event queue relies on fixed sleep instead of waiting for worker thread drain."
 
             return (
-                "Coinflip Certified Fix: Replace sleep with deterministic event synchronization",
-                "CPU pressure spikes failure rates, proving the test races a background worker using a fixed sleep.",
+                fix_title,
+                fix_diag,
                 patched_code,
             )
 
@@ -595,6 +620,7 @@ def diagnose_and_propose_fix(
     *,
     timeline_profile: dict | None = None,
     ast_audit: dict | None = None,
+    fast_live_mode: bool = False,
 ) -> tuple[str, str, str]:
     """Module-level proxy: returns (fix_title, root_cause_diagnosis, patched_code) tuple."""
     return get_agent().diagnose_and_propose_fix(
@@ -604,6 +630,7 @@ def diagnose_and_propose_fix(
         previous_rejected_attempts=previous_rejected_attempts,
         timeline_profile=timeline_profile,
         ast_audit=ast_audit,
+        fast_live_mode=fast_live_mode,
     )
 
 

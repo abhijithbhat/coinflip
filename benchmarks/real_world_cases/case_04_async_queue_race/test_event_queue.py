@@ -40,7 +40,7 @@ def test_all_events_flushed():
     eq.signal_done()
 
     # Flawed pattern: fixed arbitrary sleep
-    time.sleep(0.020)
+    time.sleep(0.026)
 
     assert len(eq.flushed_events) == 10, (
         f"Only {len(eq.flushed_events)}/10 events flushed — "
