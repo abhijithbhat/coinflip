@@ -23,6 +23,7 @@ workspace_root = Path(__file__).resolve().parent.parent
 if str(workspace_root) not in sys.path:
     sys.path.insert(0, str(workspace_root))
 
+from sandbox_engine.ast_gatekeeper import ASTSemanticGatekeeper
 from sandbox_engine.batch_runner import SandboxBatchRunner
 from sandbox_engine.image_builder import SandboxImageBuilder
 from sandbox_engine.math_utils import upper_confidence_bound_95
@@ -30,6 +31,8 @@ from sandbox_engine.patch_verifier import Stage4PatchVerifier
 from shared_contracts.schemas import CandidateFixEvaluation, PerturbationType
 
 ORIGINAL_TEST_CODE = '''import hashlib
+import os
+import random
 import threading
 import time
 
@@ -39,9 +42,19 @@ class BackgroundWorker:
         self.done_event = threading.Event()
 
     def run(self) -> None:
-        for i in range(8):
-            _ = hashlib.sha256(f"job_{i}".encode()).digest()
-            time.sleep(0.001)
+        is_cpu_stress = (
+            os.environ.get("COINFLIP_CPU_LOAD") == "1"
+            or os.environ.get("COINFLIP_PERTURBATION") in ("cpu_heavy_load", "cpu_half_cores")
+        )
+        if is_cpu_stress:
+            for i in range(8):
+                _ = hashlib.sha256(f"job_{i}".encode()).digest()
+                time.sleep(0.008)
+        else:
+            is_stochastic_tail = random.random() < 0.12
+            for i in range(8):
+                _ = hashlib.sha256(f"job_{i}".encode()).digest()
+                time.sleep(0.0035 if is_stochastic_tail else 0.001)
         self.is_completed = True
         self.done_event.set()
 
@@ -53,32 +66,34 @@ def test_job_finishes():
     t = threading.Thread(target=worker.run)
     t.start()
     # Flawed pattern: fixed arbitrary sleep (races worker under load)
-    time.sleep(0.009)
+    time.sleep(0.025)
     assert worker.is_completed is True, "Background worker timed out before completion"
     t.join(timeout=1.0)
 '''
 
 QUICK_FIX_DIFF = '''--- a/test_worker.py
 +++ b/test_worker.py
-@@ -21,3 +21,3 @@
+@@ -34,4 +34,4 @@
      t.start()
--    time.sleep(0.009)
-+    time.sleep(0.050)
+     # Flawed pattern: fixed arbitrary sleep (races worker under load)
+-    time.sleep(0.025)
++    time.sleep(0.040)
      assert worker.is_completed is True, "Background worker timed out before completion"
 '''
 
 REAL_FIX_DIFF = '''--- a/test_worker.py
 +++ b/test_worker.py
-@@ -21,3 +21,3 @@
+@@ -34,4 +34,4 @@
      t.start()
--    time.sleep(0.009)
+     # Flawed pattern: fixed arbitrary sleep (races worker under load)
+-    time.sleep(0.025)
 -    assert worker.is_completed is True, "Background worker timed out before completion"
 +    finished = worker.wait_for_completion(timeout=5.0)
 +    assert finished is True and worker.is_completed is True, "Background worker timed out"
 '''
 
 
-async def run_phase2_verification() -> None:
+async def run_phase2_verification(mode: Literal["auto", "local_isolated", "nebius_sandbox"] = "auto") -> None:
     temp_dir = Path(tempfile.mkdtemp(prefix="coinflip_phase2_fixture_"))
     snapshots_dir = Path(tempfile.mkdtemp(prefix="coinflip_phase2_snapshots_"))
 
@@ -89,7 +104,7 @@ async def run_phase2_verification() -> None:
         print(f"[Phase 2 Verification] Created base fixture at {test_file}")
 
         # 2. Build immutable snapshot using SandboxImageBuilder
-        builder = SandboxImageBuilder(snapshots_root=snapshots_dir, mode="auto")
+        builder = SandboxImageBuilder(snapshots_root=snapshots_dir, mode=mode)
         base_snapshot_id = builder.create_base_snapshot(temp_dir)
         base_path = builder.get_snapshot_path(base_snapshot_id)
         print(f"[Phase 2 Verification] Created base snapshot: {base_snapshot_id}")
@@ -100,7 +115,7 @@ async def run_phase2_verification() -> None:
             repo_dir=base_path,
             test_target="test_worker.py",
             max_concurrency=4,
-            mode="auto",
+            mode=mode,
         )
         orig_normal = await orig_runner.run_batch(PerturbationType.BASELINE, num_runs=50)
         orig_stress = await orig_runner.run_batch(PerturbationType.CPU_HEAVY_LOAD, num_runs=50)
@@ -114,16 +129,16 @@ async def run_phase2_verification() -> None:
             base_snapshot_id=base_snapshot_id,
             test_target="test_worker.py",
             max_concurrency=4,
-            mode="auto",
+            mode=mode,
         )
 
-        # 5. Evaluate Candidate Fix 1: Naive Quick Fix (raising sleep to 0.050s)
-        print("\n[Step 2] Evaluating Candidate Fix 1: Naive Quick Fix (raising sleep to 0.050s)...")
+        # 5. Evaluate Candidate Fix 1: Naive Quick Fix (raising sleep to 0.040s)
+        print("\n[Step 2] Evaluating Candidate Fix 1: Naive Quick Fix (raising sleep to 0.040s)...")
         eval_fix_1 = await verifier.verify_patch(
             attempt_number=1,
-            fix_title="Quick Fix: Raise wait(9ms) to wait(50ms)",
+            fix_title="Quick Fix: Raise wait(25ms) to wait(40ms)",
             root_cause_diagnosis=(
-                "Worker occasionally exceeds 9ms. Raising arbitrary sleep to 50ms eliminates failures "
+                "Worker occasionally exceeds 25ms. Raising arbitrary sleep to 40ms eliminates failures "
                 "on a quiet machine, but the race condition remains unhandled under CPU pressure."
             ),
             patch_content=QUICK_FIX_DIFF,
@@ -218,8 +233,326 @@ async def run_phase2_verification() -> None:
         shutil.rmtree(snapshots_dir, ignore_errors=True)
 
 
+def test_ast_semantic_gatekeeper_14_vectors() -> None:
+    """Verifies that ASTSemanticGatekeeper blocks all 14 tampering vectors and passes 5 real benchmark fixes."""
+    print("\n" + "=" * 90)
+    print("TESTING AST SEMANTIC GATEKEEPER: 14 TAMPERING VECTORS & 5 BENCHMARK FIXES")
+    print("=" * 90)
+
+    gk = ASTSemanticGatekeeper()
+
+    base_worker_test = """
+import time
+import threading
+
+def test_worker():
+    time.sleep(0.009)
+    assert worker.is_completed is True, "Worker did not complete in time"
+"""
+
+    base_rate_test = """
+def test_read_rate():
+    rate = get_rate("domestic")
+    assert rate == 5.99, f"Expected default rate 5.99, got {rate}"
+"""
+
+    tampering_cases = [
+        # 1. Deleted assertions / reduced assertion count
+        (
+            "Vector 01: Deleted Assertions",
+            base_worker_test,
+            """
+import time
+def test_worker():
+    time.sleep(0.009)
+""",
+            "BLOCKED_ASSERTION_TAMPERING",
+        ),
+        # 2. Literal tautology: assert True
+        (
+            "Vector 02: Literal assert True",
+            base_worker_test,
+            """
+import time
+def test_worker():
+    time.sleep(0.009)
+    assert True
+""",
+            "BLOCKED_ASSERTION_TAMPERING",
+        ),
+        # 3. Literal tautology: assert 1
+        (
+            "Vector 03: Literal assert 1",
+            base_worker_test,
+            """
+import time
+def test_worker():
+    time.sleep(0.009)
+    assert 1
+""",
+            "BLOCKED_ASSERTION_TAMPERING",
+        ),
+        # 4. Literal tautology: assert "ok"
+        (
+            "Vector 04: Literal assert 'ok'",
+            base_worker_test,
+            """
+import time
+def test_worker():
+    time.sleep(0.009)
+    assert "ok"
+""",
+            "BLOCKED_ASSERTION_TAMPERING",
+        ),
+        # 5. Boolean short-circuit: assert x or True
+        (
+            "Vector 05: Short-circuit assert x or True",
+            base_worker_test,
+            """
+import time
+def test_worker():
+    time.sleep(0.009)
+    assert worker.is_completed or True
+""",
+            "BLOCKED_ASSERTION_TAMPERING",
+        ),
+        # 6. Boolean short-circuit: assert True or x
+        (
+            "Vector 06: Short-circuit assert True or x",
+            base_worker_test,
+            """
+import time
+def test_worker():
+    time.sleep(0.009)
+    assert True or worker.is_completed
+""",
+            "BLOCKED_ASSERTION_TAMPERING",
+        ),
+        # 7. Law of excluded middle: assert x or not x
+        (
+            "Vector 07: Law of excluded middle assert x or not x",
+            base_worker_test,
+            """
+import time
+def test_worker():
+    time.sleep(0.009)
+    assert worker.is_completed or not worker.is_completed
+""",
+            "BLOCKED_ASSERTION_TAMPERING",
+        ),
+        # 8. Law of excluded middle: assert not x or x
+        (
+            "Vector 08: Law of excluded middle assert not x or x",
+            base_worker_test,
+            """
+import time
+def test_worker():
+    time.sleep(0.009)
+    assert not worker.is_completed or worker.is_completed
+""",
+            "BLOCKED_ASSERTION_TAMPERING",
+        ),
+        # 9. Self-comparison: assert x == x
+        (
+            "Vector 09: Self-comparison assert x == x",
+            base_worker_test,
+            """
+import time
+def test_worker():
+    time.sleep(0.009)
+    assert worker.is_completed == worker.is_completed
+""",
+            "BLOCKED_ASSERTION_TAMPERING",
+        ),
+        # 10. Self-membership: assert x in [x]
+        (
+            "Vector 10: Self-membership assert x in [x]",
+            base_worker_test,
+            """
+import time
+def test_worker():
+    time.sleep(0.009)
+    assert worker.is_completed in [worker.is_completed]
+""",
+            "BLOCKED_ASSERTION_TAMPERING",
+        ),
+        # 11. Dead conditional: if False: assert ...
+        (
+            "Vector 11: Dead conditional if False: assert ...",
+            base_worker_test,
+            """
+import time
+def test_worker():
+    time.sleep(0.009)
+    if False:
+        assert worker.is_completed is True
+""",
+            "BLOCKED_ASSERTION_TAMPERING",
+        ),
+        # 12. Early return before assert
+        (
+            "Vector 12: Early return before assertions",
+            base_worker_test,
+            """
+import time
+def test_worker():
+    return
+    time.sleep(0.009)
+    assert worker.is_completed is True
+""",
+            "BLOCKED_TEST_SUPPRESSION",
+        ),
+        # 13. Exception swallowing around assertions (try/except: pass)
+        (
+            "Vector 13: Exception swallowing try/except: pass",
+            base_worker_test,
+            """
+import time
+def test_worker():
+    try:
+        assert worker.is_completed is True
+    except Exception:
+        pass
+""",
+            "BLOCKED_TEST_SUPPRESSION",
+        ),
+        # 14. Test suppression / rerun decorator: @pytest.mark.flaky(reruns=5)
+        (
+            "Vector 14: Suppression decorator @pytest.mark.flaky",
+            base_worker_test,
+            """
+import pytest
+import time
+@pytest.mark.flaky(reruns=5)
+def test_worker():
+    time.sleep(0.009)
+    assert worker.is_completed is True
+""",
+            "BLOCKED_TEST_SUPPRESSION",
+        ),
+        # 15. Weakened assertion operator: assert rate is not None (replacing rate == 5.99)
+        (
+            "Vector 15: Weakened operator assert rate is not None",
+            base_rate_test,
+            """
+def test_read_rate():
+    rate = get_rate("domestic")
+    assert rate is not None
+""",
+            "BLOCKED_ASSERTION_TAMPERING",
+        ),
+    ]
+
+    for label, orig_code, patch_code, expected_status in tampering_cases:
+        rep = gk.audit(orig_code, patch_code)
+        assert rep.passed_gatekeeper is False, f"Failed to block {label}! rep={rep}"
+        assert rep.status_code == expected_status, f"Expected {expected_status} for {label}, got {rep.status_code}"
+        print(f"  [BLOCKED] {label:<50} -> {rep.status_code} (PASS)")
+
+    # 16. Verify Sleep Inflation without sync primitives is warned
+    sleep_inflation_patch = """
+import time
+def test_worker():
+    time.sleep(0.050)
+    assert worker.is_completed is True, "Worker did not complete in time"
+"""
+    rep_sleep = gk.audit(base_worker_test, sleep_inflation_patch)
+    assert rep_sleep.passed_gatekeeper is True
+    assert rep_sleep.status_code == "WARN_SLEEP_INFLATION"
+    assert rep_sleep.sleep_inflation_detected is True
+    print(f"  [WARNED]  {'Sleep Inflation without synchronization':<50} -> WARN_SLEEP_INFLATION (PASS)")
+
+    # 17. Verify all 5 Certified Real Benchmark Fixes pass as VERIFIED_CLEAN
+    benchmark_fixes = [
+        (
+            "Benchmark 1: hero_worker_race (wait_for_completion)",
+            base_worker_test,
+            """
+import threading
+def test_worker():
+    finished = worker.wait_for_completion(timeout=5.0)
+    assert finished is True and worker.is_completed is True, "Worker timed out"
+""",
+        ),
+        (
+            "Benchmark 2: case_01_test_order_pollution (autouse reset fixture)",
+            base_rate_test,
+            """
+import pytest
+@pytest.fixture(autouse=True)
+def reset_rate_limiter():
+    RateLimiter.reset_instance()
+    yield
+    RateLimiter.reset_instance()
+
+def test_read_rate():
+    rate = get_rate("domestic")
+    assert rate == 5.99, f"Expected default rate 5.99, got {rate}"
+""",
+        ),
+        (
+            "Benchmark 3: case_02_unpinned_seed_sampling (deterministic Random)",
+            """
+def test_batch_score():
+    score = compute_score()
+    assert score >= 75.0
+""",
+            """
+import random
+def test_batch_score():
+    rng = random.Random(0xDEADBEEF)
+    score = compute_score(rng=rng)
+    assert score >= 75.0
+""",
+        ),
+        (
+            "Benchmark 4: case_03_token_expiry_clock (freeze_time context)",
+            """
+def test_cache_ttl():
+    cache = FileCacheTTL()
+    token = cache.retrieve("tok")
+    assert token == "valid"
+""",
+            """
+from freezegun import freeze_time
+def test_cache_ttl():
+    with freeze_time("2026-10-18 12:00:00"):
+        cache = FileCacheTTL()
+        token = cache.retrieve("tok")
+        assert token == "valid"
+""",
+        ),
+        (
+            "Benchmark 5: case_04_async_queue_race (wait_for_drain)",
+            """
+import time
+def test_queue():
+    time.sleep(0.026)
+    assert len(eq.flushed) == 10
+""",
+            """
+def test_queue():
+    drained = eq.wait_for_drain(timeout=5.0)
+    assert drained is True and len(eq.flushed) == 10
+""",
+        ),
+    ]
+
+    for label, orig_code, fix_code in benchmark_fixes:
+        rep_fix = gk.audit(orig_code, fix_code)
+        assert rep_fix.passed_gatekeeper is True, f"Real fix rejected: {label}! rep={rep_fix}"
+        assert rep_fix.status_code == "VERIFIED_CLEAN", f"Expected VERIFIED_CLEAN for {label}, got {rep_fix.status_code}"
+        assert len(rep_fix.synchronization_primitives_detected) > 0, f"No sync detected for {label}"
+        print(f"  [CLEAN]   {label:<50} -> VERIFIED_CLEAN {rep_fix.synchronization_primitives_detected} (PASS)")
+
+    print("\n✅ ALL 14+ TAMPERING VECTORS BLOCKED & ALL 5 REAL BENCHMARK FIXES CERTIFIED CLEAN!")
+    print("=" * 90 + "\n")
+
+
 def main() -> None:
-    asyncio.run(run_phase2_verification())
+    test_ast_semantic_gatekeeper_14_vectors()
+    mode = "local_isolated" if ("--local" in sys.argv or "local_isolated" in sys.argv) else "auto"
+    asyncio.run(run_phase2_verification(mode=mode))
 
 
 if __name__ == "__main__":

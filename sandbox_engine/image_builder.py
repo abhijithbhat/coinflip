@@ -199,16 +199,20 @@ class SandboxImageBuilder:
         if proc.returncode == 0:
             return True
 
-        # Try patch command if git apply failed
-        proc_patch = subprocess.run(
-            ["patch", "-p1", "--forward", "--batch"],
-            input=clean_diff.encode("utf-8"),
-            cwd=target_dir,
-            capture_output=True,
-            check=False,
-        )
-        if proc_patch.returncode == 0:
-            return True
+        # Try patch command if git apply failed (with strict timeout)
+        try:
+            proc_patch = subprocess.run(
+                ["patch", "-p1", "-t", "-f"],
+                input=clean_diff.encode("utf-8"),
+                cwd=target_dir,
+                capture_output=True,
+                check=False,
+                timeout=3,
+            )
+            if proc_patch.returncode == 0:
+                return True
+        except (subprocess.TimeoutExpired, Exception):
+            pass
 
         # Python fallback for simple replacement hunks (e.g. @@ -1,1 +1,1 @@)
         return self._apply_diff_python_fallback(target_dir, clean_diff)

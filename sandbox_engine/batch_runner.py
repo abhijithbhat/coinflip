@@ -428,6 +428,7 @@ class SandboxBatchRunner:
                     e,
                 )
                 backend = "local_isolated"
+                self._cached_backend = "local_isolated"
                 run_results = await self._run_batch_local(perturbation, num_runs)
         else:
             run_results = await self._run_batch_local(perturbation, num_runs)
