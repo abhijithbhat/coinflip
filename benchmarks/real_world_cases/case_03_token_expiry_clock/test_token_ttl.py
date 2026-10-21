@@ -1,38 +1,28 @@
-"""Flaky test: Cache TTL validation that mixes wall-clock sources.
+"""Flaky test: Token cache TTL validation sensitive to wall-clock skew.
 
-This test creates a file-backed cache entry, then immediately retrieves it.
-Under normal conditions, the entry is fresh. Under clock_shift, the
-monkey-patched time.time() disagrees with os.path.getmtime(), making
-the entry appear 3600 seconds old and triggering expiry.
-
-Expected behavior across Coinflip's 7 perturbation conditions:
-  - baseline:        0% failure (time.time() matches file mtime)
-  - shuffle_order:   0% failure
-  - seed_change:     0% failure
-  - clock_shift:     100% failure — THIS IS THE TRIGGERING CONDITION
-  - network_cut:     0% failure
-  - cpu_half_cores:  0% failure
-  - cpu_heavy_load:  0% failure
+This test creates a token cache entry with a 0.10s TTL and retrieves it.
+Under normal conditions, issuance and retrieval happen within microseconds,
+passing reliably. Under CLOCK_SHIFT, monkey-patched time.time() incurs a
++0.15s skew between calls, making the token appear expired immediately.
 """
 
-from token_cache import FileCacheTTL
+from token_cache import TokenCache
 
 
 def test_cache_stores_and_retrieves():
-    """Stores a session token and immediately retrieves it.
+    """Stores a session token and retrieves it before TTL expires.
 
-    BUG: The cache's retrieve() method computes entry age as
-    time.time() - os.path.getmtime(). Under clock_shift (+3600s),
-    time.time() is shifted but getmtime() isn't, so age = 3600.
-    With TTL = 300s, the entry appears expired immediately.
+    BUG: TokenCache relies on time.time() instead of time.monotonic().
+    When NTP clock adjustments or CLOCK_SHIFT perturbations occur,
+    time.time() shifts between calls, exceeding the 0.10s TTL.
     """
-    cache = FileCacheTTL(ttl_seconds=300)
+    cache = TokenCache(ttl_seconds=0.10)
     try:
         cache.store("session_token", "eyJhbGciOiJIUzI1NiJ9.test_payload")
         result = cache.retrieve("session_token")
         assert result == "eyJhbGciOiJIUzI1NiJ9.test_payload", (
             f"Expected session token, got {result!r} — "
-            "entry may have been expired prematurely"
+            "token expired prematurely due to wall-clock skew"
         )
     finally:
         cache.cleanup()

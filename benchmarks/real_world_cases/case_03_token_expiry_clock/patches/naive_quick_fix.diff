@@ -1,5 +1,5 @@
 --- a/test_token_ttl.py
 +++ b/test_token_ttl.py
-@@ -3,3 +3,3 @@
--    cache = FileCacheTTL(ttl_seconds=300)
-+    cache = FileCacheTTL(ttl_seconds=4000)
+@@ -16,2 +16,2 @@
+-    cache = TokenCache(ttl_seconds=0.10)
++    cache = TokenCache(ttl_seconds=0.12)  # Naive fix: 0.12s still < 0.15s clock shift

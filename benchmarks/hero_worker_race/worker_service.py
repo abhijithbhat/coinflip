@@ -1,19 +1,14 @@
 """Background worker service simulating a CPU-bound report/job processor.
 
-This module models a realistic background task that runs SHA-256 hashing
-iterations in a separate thread and signals completion via a threading.Event.
+This module models a realistic background task that runs CPU-bound payload
+processing in a separate thread and signals completion via a threading.Event.
 
 Pure Python stdlib — zero external packages required.
-
-Cross-platform note: The per-iteration time.sleep(0.001) adds ~1ms on Linux
-(where Nebius sandboxes run) but rounds to ~15ms on Windows due to timer
-granularity. Baseline flakiness rates will differ across platforms, but the
-cpu_heavy_load stress amplification works on all platforms.
 """
 
+from __future__ import annotations
+
 import hashlib
-import os
-import random
 import threading
 import time
 
@@ -21,55 +16,45 @@ import time
 class BackgroundWorker:
     """Simulates a background report/job processor that performs CPU-bound work.
 
-    The worker runs SHA-256 hashing iterations with small per-iteration delays
-    in a thread. Under normal quiet conditions (Linux), the work completes in
-    ~8-15ms. Under heavy CPU load (COINFLIP_CPU_HEAVY_LOAD), thread scheduling
-    delays push the worker well beyond that, causing race conditions with
+    The worker runs payload processing iterations with a tiny delay in a background thread.
+    Under quiet baseline conditions, the worker finishes in ~4-6ms. Under heavy CPU load
+    (CPU_HEAVY_LOAD with low GIL switch interval and burner threads), thread scheduling
+    and GIL contention delay completion past 6ms, causing race conditions with
     fixed-sleep-based test assertions.
 
     Attributes:
-        is_completed: Boolean flag set to True when all work iterations finish.
-        done_event: threading.Event signaled upon completion for proper synchronization.
-        result_hash: The final SHA-256 digest (bytes) from the last iteration.
+        result_ready: Boolean flag set to True when payload processing finishes.
+        is_completed: Boolean flag set to True for backwards compatibility.
+        result_hash: The final SHA-256 digest from processing.
     """
 
     def __init__(self) -> None:
+        self.result_ready: bool = False
         self.is_completed: bool = False
-        self.done_event = threading.Event()
+        self._done_event = threading.Event()
+        self.done_event = self._done_event  # Alias for compatibility
         self.result_hash: bytes = b""
 
     def run(self) -> None:
-        """Executes CPU-bound hashing work across 8 iterations.
+        """Executes CPU-bound payload processing loop.
 
-        Under quiet baseline conditions, the worker finishes in ~10-15ms,
-        with a calibrated stochastic tail (~7-14% of runs) where slight OS jitter
-        stretches execution to ~28-32ms (causing intermittent flakiness against
-        a 25ms sleep).
-        Under CPU stress (COINFLIP_CPU_LOAD or cpu_heavy_load), thread scheduling
-        delays push completion to >60ms, triggering >85% failure.
+        Performs realistic multi-step Python payload processing iterations
+        followed by a tiny delay before signaling completion.
+        Under quiet baseline, completes in ~4-6ms. Under heavy CPU load / GIL
+        contention, completion is slowed to >25ms.
         """
-        is_cpu_stress = (
-            os.environ.get("COINFLIP_CPU_LOAD") == "1"
-            or os.environ.get("COINFLIP_PERTURBATION") in ("cpu_heavy_load", "cpu_half_cores")
-        )
+        h = b""
+        for i in range(1500):
+            payload = f"job_metric_{i}_{i * 31}".encode()
+            h = hashlib.sha256(payload).digest()
+        self.result_hash = h
+        time.sleep(0.002)
 
-        if is_cpu_stress:
-            # Under CPU stress: thread contention delays completion to 60-80ms
-            for i in range(8):
-                self.result_hash = hashlib.sha256(f"job_{i}".encode()).digest()
-                time.sleep(0.008)
-        else:
-            # Normal quiet conditions: worker takes ~10-12ms, with calibrated ~10% stochastic tail
-            # where transient scheduling delay pushes it to 28-32ms (failing 25ms sleep)
-            is_stochastic_tail = random.random() < 0.10
-            for i in range(8):
-                self.result_hash = hashlib.sha256(f"job_{i}".encode()).digest()
-                time.sleep(0.0035 if is_stochastic_tail else 0.001)
-
+        self.result_ready = True
         self.is_completed = True
-        self.done_event.set()
+        self._done_event.set()
 
-    def wait_for_completion(self, timeout: float = 5.0) -> bool:
+    def wait_for_completion(self, timeout: float = 2.0) -> bool:
         """Blocks until the worker signals completion or the timeout expires.
 
         This is the correct synchronization primitive that should be used
@@ -82,4 +67,4 @@ class BackgroundWorker:
         Returns:
             True if the worker completed within the timeout, False otherwise.
         """
-        return self.done_event.wait(timeout=timeout)
+        return self._done_event.wait(timeout=timeout)

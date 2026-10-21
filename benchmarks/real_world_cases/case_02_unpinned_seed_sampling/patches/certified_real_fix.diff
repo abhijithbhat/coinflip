@@ -1,15 +1,9 @@
 --- a/test_sampler.py
 +++ b/test_sampler.py
-@@ -1,8 +1,10 @@
--from sampler import sample_top_features, compute_quality_score
+@@ -8,2 +8,3 @@
 +import random
- 
- def test_batch_score_above_threshold():
--    selected = sample_top_features(top_k=30, sample_size=12)
--    score = compute_quality_score(selected)
-+    # Coinflip Real Fix: local RNG with fixed seed, no hash dependency
+ from sampler import sample_top_features, compute_quality_score
+@@ -14,2 +15,3 @@
+-    selected = sample_top_features(sample_size=12)
 +    rng = random.Random(42)
-+    feature_indices = list(range(200))
-+    selected = rng.sample(feature_indices, 12)
-+    score = sum(selected) / len(selected)
-     assert score >= 75.0, (
++    selected = sample_top_features(sample_size=12, rng=rng)

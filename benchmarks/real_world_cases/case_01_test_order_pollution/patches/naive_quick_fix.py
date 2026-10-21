@@ -1,24 +1,21 @@
-"""Naive Quick Fix: Inline cache clear before the failing test.
+"""Naive Quick Fix: Inline cache reset inside test_a.
 
-This fix manually clears the config cache at the start of
-test_read_default_rate. It works in the current file, but is fragile:
-any NEW test that also reads the default rate would need the same hack.
+This fix manually resets the region key inside test_a_default_tenant_config.
+While it works for this single test, it does not clean up state on teardown,
+leaving the global cache polluted for any other test that might follow test_b.
 
-Coinflip Verdict: REJECTED (brittle, doesn't scale to new tests)
+Coinflip Verdict: REJECTED (brittle inline fix)
 """
 
-from config_service import get_shipping_rate, configure_premium_shipping, _rate_config_cache
+from config_service import _GLOBAL_CONFIG_CACHE, get_active_config
 
 
-def test_read_default_rate():
-    """Reads default rate after manually clearing cache."""
-    _rate_config_cache.clear()  # Naive inline hack
-    rate = get_shipping_rate("domestic")
-    assert rate == 5.99, f"Expected default rate 5.99, got {rate}"
+def test_a_default_tenant_config():
+    _GLOBAL_CONFIG_CACHE["region"] = "us-east-1"  # Naive inline fix
+    config = get_active_config()
+    assert config["region"] == "us-east-1", f"Expected us-east-1, got {config['region']}"
 
 
-def test_override_premium_rate():
-    """Configures premium shipping and asserts premium rate."""
-    configure_premium_shipping("domestic")
-    rate = get_shipping_rate("domestic")
-    assert rate == 12.99, f"Expected premium rate 12.99, got {rate}"
+def test_b_mutate_tenant_config():
+    _GLOBAL_CONFIG_CACHE["region"] = "eu-central-1"
+    assert get_active_config()["region"] == "eu-central-1"

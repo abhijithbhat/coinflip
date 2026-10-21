@@ -1,55 +1,43 @@
 """Certified Real Fix: Use time.monotonic() for TTL age tracking.
 
-Replaces the mixed-clock-source pattern (time.time() vs os.path.getmtime)
-with a self-consistent approach: store a monotonic timestamp alongside each
-entry and compute age using time.monotonic() deltas. Monotonic clock is
-NOT affected by _pytest_hooks' clock_shift patching.
+Replaces wall-clock time.time() with time.monotonic(). Monotonic time
+guarantees non-decreasing timestamps that are immune to NTP step adjustments,
+leap seconds, and CLOCK_SHIFT runtime perturbations.
 
 Coinflip Verdict: CERTIFIED (0% failures under all conditions)
 """
 
-import os
-import shutil
-import tempfile
 import time
 
 
-class FileCacheTTL:
-    """File-backed cache using monotonic clock for TTL tracking."""
+class MonotonicTokenCache:
+    """Token cache using time.monotonic() for robust TTL validation."""
 
-    def __init__(self, ttl_seconds: float = 300.0) -> None:
+    def __init__(self, ttl_seconds: float = 0.10) -> None:
         self.ttl = ttl_seconds
-        self._store_dir = tempfile.mkdtemp(prefix="coinflip_cache_")
-        self._mono_times: dict[str, float] = {}
+        self._entries: dict[str, tuple[str, float]] = {}
 
     def store(self, key: str, value: str) -> None:
-        path = os.path.join(self._store_dir, key)
-        with open(path, "w") as f:
-            f.write(value)
-        self._mono_times[key] = time.monotonic()  # Monotonic, immune to shift
+        # Coinflip Real Fix: time.monotonic() for issuance timestamp
+        self._entries[key] = (value, time.monotonic())
 
     def retrieve(self, key: str) -> str | None:
-        path = os.path.join(self._store_dir, key)
-        if not os.path.exists(path):
+        entry = self._entries.get(key)
+        if entry is None:
             return None
-        stored_at = self._mono_times.get(key)
-        if stored_at is None:
+        value, issued_at = entry
+        # Coinflip Real Fix: time.monotonic() delta is immune to clock shifts
+        if time.monotonic() - issued_at > self.ttl:
             return None
-        # Fix: use monotonic clock for age — immune to clock shift
-        age = time.monotonic() - stored_at
-        if age > self.ttl:
-            os.unlink(path)
-            return None
-        with open(path) as f:
-            return f.read()
+        return value
 
     def cleanup(self) -> None:
-        shutil.rmtree(self._store_dir, ignore_errors=True)
+        self._entries.clear()
 
 
 def test_cache_stores_and_retrieves():
     """Stores and retrieves using monotonic-clock-based TTL."""
-    cache = FileCacheTTL(ttl_seconds=300)
+    cache = MonotonicTokenCache(ttl_seconds=0.10)
     try:
         cache.store("session_token", "eyJhbGciOiJIUzI1NiJ9.test_payload")
         result = cache.retrieve("session_token")

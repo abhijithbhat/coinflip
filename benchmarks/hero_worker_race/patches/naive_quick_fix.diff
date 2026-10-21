@@ -1,7 +1,7 @@
 --- a/test_worker.py
 +++ b/test_worker.py
-@@ -38,3 +38,3 @@
--    # Flawed pattern: fixed arbitrary sleep (races worker under load)
--    time.sleep(0.009)
-+    # Naive fix: arbitrary timeout increase (0.050s)
-+    time.sleep(0.050)
+@@ -21,3 +21,3 @@
+-    # Flawed pattern: fixed arbitrary sleep (0.006s)
+-    time.sleep(0.006)
++    # Naive fix: slight timeout increase (0.009s)
++    time.sleep(0.009)

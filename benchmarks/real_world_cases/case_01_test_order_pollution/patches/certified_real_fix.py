@@ -8,7 +8,7 @@ Coinflip Verdict: CERTIFIED (0% failures under all conditions including shuffle_
 """
 
 import pytest
-from config_service import get_shipping_rate, configure_premium_shipping, reset_config
+from config_service import _GLOBAL_CONFIG_CACHE, get_active_config, reset_config
 
 
 @pytest.fixture(autouse=True)
@@ -19,14 +19,11 @@ def clean_config_state():
     reset_config()
 
 
-def test_read_default_rate():
-    """Reads default rate with guaranteed clean state."""
-    rate = get_shipping_rate("domestic")
-    assert rate == 5.99, f"Expected default rate 5.99, got {rate}"
+def test_a_default_tenant_config():
+    config = get_active_config()
+    assert config["region"] == "us-east-1", f"Expected us-east-1, got {config['region']}"
 
 
-def test_override_premium_rate():
-    """Configures premium shipping with guaranteed clean state."""
-    configure_premium_shipping("domestic")
-    rate = get_shipping_rate("domestic")
-    assert rate == 12.99, f"Expected premium rate 12.99, got {rate}"
+def test_b_mutate_tenant_config():
+    _GLOBAL_CONFIG_CACHE["region"] = "eu-central-1"
+    assert get_active_config()["region"] == "eu-central-1"

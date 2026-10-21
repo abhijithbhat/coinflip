@@ -5,22 +5,22 @@
   "test_file": "test_sampler.py",
   "test_identifier": "test_sampler.py::test_batch_score_above_threshold",
   "source_modules": ["sampler.py"],
-  "root_cause": "Test uses hash() for feature ranking (PYTHONHASHSEED-sensitive) and module-level random for subset selection (COINFLIP_RANDOM_SEED-sensitive). Under seed_change, both sources are correlated (same run_seed), amplifying threshold failures.",
+  "root_cause": "Test uses unpinned module-level random for subset selection. Under seed_change, per-run deterministic seed sweeps cause ~15-25% of draws to breach the tight quality threshold.",
   "triggering_perturbation": "seed_change",
   "expected_failure_rates": {
-    "baseline": "~2-5% (independent hash + random sources)",
-    "shuffle_order": "~2-5%",
-    "seed_change": "~8-15% (correlated hash + random amplification)",
-    "clock_shift": "~2-5%",
-    "network_cut": "~2-5%",
-    "cpu_half_cores": "~2-5%",
-    "cpu_heavy_load": "~2-5%"
+    "baseline": "~15-20%",
+    "shuffle_order": "~15-20%",
+    "seed_change": "~15-25%",
+    "clock_shift": "~15-20%",
+    "network_cut": "~15-20%",
+    "cpu_half_cores": "~15-20%",
+    "cpu_heavy_load": "~15-20%"
   },
   "patches": {
     "naive_quick_fix": {
       "file": "patches/naive_quick_fix.py",
       "diff": "patches/naive_quick_fix.diff",
-      "description": "Widens threshold from 75.0 to 45.0. Still fails on tail seeds under seed_change.",
+      "description": "Widens threshold from 85.0 to 70.0. Still fails on outlier seeds under seed_change.",
       "expected_verdict": "REJECTED"
     },
     "certified_real_fix": {

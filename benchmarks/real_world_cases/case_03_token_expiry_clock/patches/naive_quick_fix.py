@@ -1,18 +1,18 @@
-"""Naive Quick Fix: Increase TTL to exceed the clock shift.
+"""Naive Quick Fix: Slightly increase TTL to mask jitter.
 
-Bumps TTL from 300 to 4000 seconds. Under clock_shift (+3600s), age = 3600
-which is now < 4000, so the entry passes. But this is fragile — any larger
-clock shift or real-world NTP jump would still break it.
+Bumps TTL from 0.10s to 0.12s. While this may tolerate small millisecond
+delays on quiet systems, it fails under CLOCK_SHIFT where wall-clock skew
+is +0.15s between calls.
 
-Coinflip Verdict: REJECTED (passes THIS shift but fragile to larger shifts)
+Coinflip Verdict: REJECTED (fails under CLOCK_SHIFT)
 """
 
-from token_cache import FileCacheTTL
+from token_cache import TokenCache
 
 
 def test_cache_stores_and_retrieves():
-    """Stores and retrieves with inflated TTL."""
-    cache = FileCacheTTL(ttl_seconds=4000)  # Naive fix: 4000 > 3600
+    """Stores and retrieves with slightly increased TTL."""
+    cache = TokenCache(ttl_seconds=0.12)  # Naive fix: 0.12s still < 0.15s clock shift
     try:
         cache.store("session_token", "eyJhbGciOiJIUzI1NiJ9.test_payload")
         result = cache.retrieve("session_token")

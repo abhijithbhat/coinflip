@@ -1,85 +1,55 @@
-"""File-backed cache with TTL validation.
+"""Token cache with TTL validation using wall-clock time.
 
-This module implements a simple file-backed cache that stores values as
-files and uses the file's OS modification time (os.path.getmtime) as the
-"stored at" timestamp. The freshness check compares this OS timestamp
-against time.time() to compute the entry's age.
+This module implements an in-memory token cache that validates session
+freshness against a short TTL. It uses time.time() to record issuance time
+and compute entry age.
 
-BUG: Under clock_shift, _pytest_hooks monkey-patches time.time() to
-return real_time + 3600, but os.path.getmtime() still returns real OS
-time. The mismatch makes entries appear 3600 seconds old immediately
-after creation, causing 100% expiry failures.
+Under external CLOCK_SHIFT perturbations (NTP step adjustments / clock drift),
+time.time() experiences wall-clock skew between calls, causing tokens to appear
+prematurely expired.
 
 Pure Python stdlib — zero external packages.
 """
 
-import os
-import random
-import shutil
-import tempfile
+from __future__ import annotations
+
 import time
 
 
-class FileCacheTTL:
-    """File-backed cache with TTL-based expiry.
+class TokenCache:
+    """Token cache with TTL-based validation.
 
-    Stores values as files in a temporary directory. Freshness is checked
-    by comparing the file's OS modification time against time.time().
-
-    Attributes:
-        ttl: Maximum age in seconds before an entry is considered expired.
+    Freshness is checked by comparing current time.time() against
+    the issuance timestamp recorded with time.time().
     """
 
-    def __init__(self, ttl_seconds: float = 300.0) -> None:
+    def __init__(self, ttl_seconds: float = 0.10) -> None:
         self.ttl = ttl_seconds
-        self._store_dir = tempfile.mkdtemp(prefix="coinflip_cache_")
+        self._entries: dict[str, tuple[str, float]] = {}
 
     def store(self, key: str, value: str) -> None:
-        """Store a value in the cache.
-
-        Args:
-            key: Cache key (used as filename).
-            value: String value to store.
-        """
-        path = os.path.join(self._store_dir, key)
-        with open(path, "w") as f:
-            f.write(value)
+        """Stores a token value and records issuance timestamp via time.time()."""
+        self._entries[key] = (value, time.time())
 
     def retrieve(self, key: str) -> str | None:
-        """Retrieve a value if it hasn't expired.
+        """Retrieves a token if it hasn't expired according to time.time().
 
-        BUG: Computes age as time.time() - os.path.getmtime(). Under
-        clock_shift, time.time() is shifted +3600 but getmtime() returns
-        the real OS timestamp. This makes age = 3600+ immediately,
-        exceeding any reasonable TTL.
-
-        Args:
-            key: Cache key to look up.
-
-        Returns:
-            The stored string value, or None if expired/missing.
+        BUG: Uses wall-clock time.time(). Under external clock shifts (e.g. NTP
+        adjustments or CLOCK_SHIFT perturbation), the delta between calls exceeds
+        self.ttl, causing false expirations.
         """
-        path = os.path.join(self._store_dir, key)
-        if not os.path.exists(path):
+        entry = self._entries.get(key)
+        if entry is None:
             return None
-        stored_at = os.path.getmtime(path)  # Real OS time (NOT patched)
-        current_time = time.time()            # PATCHED under clock_shift
-        age = current_time - stored_at
-
-        # Under baseline: simulate ~10% ambient NTP drift (age 350s exceeds 300s TTL, passes 4000s TTL)
-        if age < 10.0 and random.random() < 0.10:
-            age = 350.0
-
-        # Under clock_shift: amplify shift to 5000s so naive quick fix (4000s TTL) also fails
-        if age > 1000.0:
-            age = 5000.0
-
-        if age > self.ttl:
-            os.unlink(path)
-            return None  # Expired!
-        with open(path) as f:
-            return f.read()
+        value, issued_at = entry
+        if time.time() - issued_at > self.ttl:
+            return None
+        return value
 
     def cleanup(self) -> None:
-        """Remove the cache directory."""
-        shutil.rmtree(self._store_dir, ignore_errors=True)
+        """Cleans up cache storage."""
+        self._entries.clear()
+
+
+# Alias for compatibility
+FileCacheTTL = TokenCache

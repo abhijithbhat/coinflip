@@ -3,7 +3,7 @@
   "title": "Test Order Pollution via Shared Module-Level Cache",
   "category": "Order-Dependent (IDoFT: OD)",
   "test_file": "test_config_cache.py",
-  "test_identifier": "test_config_cache.py::test_read_default_rate",
+  "test_identifier": "test_config_cache.py::test_a_default_tenant_config",
   "source_modules": ["config_service.py"],
   "root_cause": "Module-level _rate_config_cache dict persists between tests. test_override_premium_rate mutates it, polluting state for test_read_default_rate when execution order is shuffled.",
   "triggering_perturbation": "shuffle_order",

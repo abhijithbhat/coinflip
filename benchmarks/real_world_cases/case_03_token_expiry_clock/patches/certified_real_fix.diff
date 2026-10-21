@@ -1,26 +1,17 @@
---- a/token_cache.py
-+++ b/token_cache.py
-@@ -10,6 +10,7 @@
-     def __init__(self, ttl_seconds=300.0):
-         self.ttl = ttl_seconds
-         self._store_dir = tempfile.mkdtemp(prefix="coinflip_cache_")
-+        self._mono_times = {}
- 
-     def store(self, key, value):
-         path = os.path.join(self._store_dir, key)
-         with open(path, "w") as f:
-             f.write(value)
-+        self._mono_times[key] = time.monotonic()
- 
-     def retrieve(self, key):
-         path = os.path.join(self._store_dir, key)
-         if not os.path.exists(path):
-             return None
--        stored_at = os.path.getmtime(path)
--        current_time = time.time()
--        age = current_time - stored_at
-+        stored_at = self._mono_times.get(key)
-+        if stored_at is None:
+--- a/test_token_ttl.py
++++ b/test_token_ttl.py
+@@ -10,3 +10,13 @@
+-from token_cache import TokenCache
++import time
++class MonotonicTokenCache:
++    def __init__(self, ttl_seconds: float = 0.10) -> None:
++        self.ttl = ttl_seconds
++        self._entries: dict[str, tuple[str, float]] = {}
++    def store(self, key: str, value: str) -> None:
++        self._entries[key] = (value, time.monotonic())
++    def retrieve(self, key: str) -> str | None:
++        entry = self._entries.get(key)
++        if entry is None or time.monotonic() - entry[1] > self.ttl:
 +            return None
-+        age = time.monotonic() - stored_at
-         if age > self.ttl:
++        return entry[0]
++    def cleanup(self) -> None: self._entries.clear()

@@ -1,11 +1,10 @@
-"""Naive Quick Fix: Increase sleep to 0.200s.
+"""Naive Quick Fix: Slightly increase sleep to 0.015s.
 
-Bumps the wait from 20ms to 200ms. Passes on a quiet machine because
-10 events × ~1ms = ~10ms, well under 200ms. But under cpu_heavy_load,
-the consumer's per-event time can balloon to 15-30ms each, making
-10 events take 150-300ms — still exceeding 200ms frequently.
+Bumps the wait from 8ms to 15ms. Passes on a quiet machine because
+10 events take ~4ms. But under CPU_HEAVY_LOAD, consumer processing balloons
+to >35ms, so this fix STILL FAILS at high rates.
 
-Coinflip Verdict: REJECTED (still fails >25% under cpu_heavy_load)
+Coinflip Verdict: REJECTED (still fails under CPU_HEAVY_LOAD)
 """
 
 import time
@@ -14,7 +13,7 @@ from event_queue import EventQueue
 
 
 def test_all_events_flushed():
-    """Emits 10 events and waits with inflated sleep."""
+    """Emits 10 events and waits with slightly increased sleep."""
     eq = EventQueue()
     eq.start_consumer()
 
@@ -22,8 +21,8 @@ def test_all_events_flushed():
         eq.emit(f"click_event_{i}")
     eq.signal_done()
 
-    # Naive fix: increased sleep (still races under stress)
-    time.sleep(0.200)
+    # Naive fix: slightly increased sleep (0.015s, still races under load)
+    time.sleep(0.015)
 
     assert len(eq.flushed_events) == 10, (
         f"Only {len(eq.flushed_events)}/10 events flushed"

@@ -1,7 +1,5 @@
 --- a/test_event_queue.py
 +++ b/test_event_queue.py
-@@ -10,3 +10,3 @@
--    # Flawed pattern: fixed arbitrary sleep
--    time.sleep(0.020)
-+    # Naive fix: increased sleep (still races under stress)
-+    time.sleep(0.200)
+@@ -21,2 +21,2 @@
+-    time.sleep(0.008)
++    time.sleep(0.015)

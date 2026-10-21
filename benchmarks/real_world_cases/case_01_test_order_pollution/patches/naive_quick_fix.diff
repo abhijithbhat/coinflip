@@ -1,10 +1,6 @@
 --- a/test_config_cache.py
 +++ b/test_config_cache.py
-@@ -1,5 +1,5 @@
--from config_service import get_shipping_rate, configure_premium_shipping
-+from config_service import get_shipping_rate, configure_premium_shipping, _rate_config_cache
- 
- def test_read_default_rate():
--    rate = get_shipping_rate("domestic")
-+    _rate_config_cache.clear()
-+    rate = get_shipping_rate("domestic")
+@@ -19,2 +19,3 @@
+ def test_a_default_tenant_config():
++    _GLOBAL_CONFIG_CACHE["region"] = "us-east-1"  # Naive inline fix
+     config = get_active_config()

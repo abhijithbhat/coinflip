@@ -101,11 +101,9 @@ def run_worker_chunk(
     results: list[SingleRunResult] = []
 
     try:
-        os.chdir(str(temp_dir))
-        # Cap per-iteration sleep duration (scaling factor 0.25) so 30 runs complete in < 0.5s while
-        # preserving the exact ratio between worker delay and test assertion wait
-        time.sleep = lambda s: _ORIG_SLEEP(s * 0.25)
         if can_direct_exec:
+            from sandbox_engine._pytest_hooks import perturbation_runtime_context
+
             # High-throughput in-process direct execution loop
             for run_id in run_ids:
                 # Clear any lingering perturbation env vars
@@ -124,35 +122,10 @@ def run_worker_chunk(
                 os.environ["COINFLIP_PERTURBATION"] = perturbation.value
                 os.environ.update(ctx.env_vars)
 
-                # Perturbation hooks
-                if perturbation == PerturbationType.SEED_CHANGE:
-                    seed_val = int(ctx.env_vars.get("COINFLIP_RANDOM_SEED", 42))
-                    random.seed(seed_val)
-                    if "numpy.random" in sys.modules:
-                        getattr(sys.modules["numpy.random"], "seed")(seed_val % (2**32 - 1))
-
-                if perturbation == PerturbationType.CLOCK_SHIFT:
-                    time.time = lambda: _ORIG_TIME() + 3600.0
-                else:
-                    time.time = _ORIG_TIME
-
-                if perturbation == PerturbationType.NETWORK_CUT:
-                    def _blocked(*args: Any, **kwargs: Any) -> None:
-                        raise OSError("Network disabled by Coinflip Sandbox")
-                    socket.socket.connect = _blocked  # type: ignore[assignment]
-                else:
-                    socket.socket.connect = _ORIG_SOCKET_CONNECT  # type: ignore[assignment]
-
-                # Reset module-level cache state between iterations
-                if "config_service" in sys.modules and hasattr(sys.modules["config_service"], "_rate_config_cache"):
-                    sys.modules["config_service"]._rate_config_cache.clear()
-                if "token_cache" in sys.modules and hasattr(sys.modules["token_cache"], "_token_cache"):
-                    sys.modules["token_cache"]._token_cache.clear()
-
                 funcs_to_run = list(direct_test_funcs)
                 if perturbation == PerturbationType.SHUFFLE_ORDER:
-                    rng = random.Random(base_seed + run_id)
-                    rng.shuffle(funcs_to_run)
+                    if len(funcs_to_run) > 1:
+                        funcs_to_run.reverse()
 
                 start_t = time.perf_counter()
                 passed = True
@@ -160,14 +133,8 @@ def run_worker_chunk(
                 error_snippet = None
 
                 try:
-                    for f in funcs_to_run:
-                        if test_module and hasattr(test_module, "clean_config_state"):
-                            if hasattr(test_module, "reset_config"):
-                                test_module.reset_config()
-                            f()
-                            if hasattr(test_module, "reset_config"):
-                                test_module.reset_config()
-                        else:
+                    with perturbation_runtime_context(perturbation, run_id=run_id, base_seed=base_seed):
+                        for f in funcs_to_run:
                             f()
                 except Exception as e:
                     passed = False
@@ -244,6 +211,10 @@ def run_worker_chunk(
         time.time = _ORIG_TIME
         time.sleep = _ORIG_SLEEP
         socket.socket.connect = _ORIG_SOCKET_CONNECT  # type: ignore[assignment]
+        try:
+            sys.setswitchinterval(0.005)
+        except Exception:
+            pass
 
     return results
 
