@@ -22,6 +22,14 @@ class CausalInferenceMetrics(BaseModel):
     relative_risk: float = Field(..., description="Relative risk ratio (stress failure rate / baseline failure rate)")
     absolute_rate_delta: float = Field(..., description="Absolute change in failure rate under perturbation")
     is_statistically_significant: bool = Field(..., description="Whether p_value < 0.05 rejecting null hypothesis")
+    holm_adjusted_p_value: Optional[float] = Field(
+        default=None,
+        description="Step-down Holm-Bonferroni adjusted p-value across Stage 2 conditions",
+    )
+
+
+# Backward-compatible schema alias
+CausalMetrics = CausalInferenceMetrics
 
 
 class ASTGatekeeperReport(BaseModel):
@@ -89,7 +97,20 @@ class CryptographicAttestation(BaseModel):
         ...,
         description="Signed certificate digest binding repo, patch, ledger root, and verdict",
     )
+    hmac_signature: Optional[str] = Field(
+        default=None,
+        description="HMAC-SHA256 signature generated with server secret",
+    )
+    signing_mode: str = Field(
+        default="hmac_sha256_server_secret",
+        description="Attestation signing mode: hmac_sha256_server_secret or sha256_merkle",
+    )
     verified: bool = Field(default=True, description="Whether attestation passed cryptographic verification")
+
+
+# Backward-compatible attestation schema aliases
+AttestationRecord = CryptographicAttestation
+CertificateAttestation = CryptographicAttestation
 
 
 class SingleRunResult(BaseModel):
@@ -183,6 +204,18 @@ class CandidateFixEvaluation(BaseModel):
         default=None,
         description="Optional sequential probability ratio test early-stopping telemetry",
     )
+    fix_source: Literal["nemotron_live", "naive_baseline_fixture", "offline_fallback_fixture"] = Field(
+        default="nemotron_live",
+        description="Source of candidate fix: live Nemotron model, baseline fixture, or offline fallback",
+    )
+    model_used: Optional[str] = Field(
+        default=None,
+        description="Specific model ID used to generate this fix attempt",
+    )
+    completion_id: Optional[str] = Field(
+        default=None,
+        description="Nebius Token Factory completion ID for this fix attempt",
+    )
 
 
 class CoinflipCertificateTrace(BaseModel):
@@ -237,5 +270,9 @@ class CoinflipCertificateTrace(BaseModel):
     llm_call_metadata: Optional[dict[str, Any]] = Field(
         default=None,
         description="Metadata from live Nebius Token Factory LLM completions (completion IDs, token usage, live status)",
+    )
+    trace_origin: Literal["live_execution", "recorded_execution", "illustrative_reference"] = Field(
+        default="recorded_execution",
+        description="Origin of trace data: live_execution, recorded_execution, or illustrative_reference",
     )
 

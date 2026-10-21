@@ -641,7 +641,8 @@
         "fisher_p_value": 1.0,
         "relative_risk": 1.0,
         "absolute_rate_delta": 0.0,
-        "is_statistically_significant": false
+        "is_statistically_significant": false,
+        "holm_adjusted_p_value": 1.0
       }
     },
     {
@@ -961,9 +962,10 @@
       ],
       "causal_metrics": {
         "fisher_p_value": 1.0,
-        "relative_risk": 0.9583,
+        "relative_risk": 0.9592,
         "absolute_rate_delta": -0.0033,
-        "is_statistically_significant": false
+        "is_statistically_significant": false,
+        "holm_adjusted_p_value": 1.0
       }
     },
     {
@@ -1282,10 +1284,11 @@
         false
       ],
       "causal_metrics": {
-        "fisher_p_value": 0.0,
-        "relative_risk": 1.0417,
+        "fisher_p_value": 0.5,
+        "relative_risk": 1.0408,
         "absolute_rate_delta": 0.0033,
-        "is_statistically_significant": true
+        "is_statistically_significant": false,
+        "holm_adjusted_p_value": 0.5
       }
     },
     {
@@ -1607,7 +1610,8 @@
         "fisher_p_value": 1.0,
         "relative_risk": 1.0,
         "absolute_rate_delta": 0.0,
-        "is_statistically_significant": false
+        "is_statistically_significant": false,
+        "holm_adjusted_p_value": 1.0
       }
     },
     {
@@ -1927,9 +1931,10 @@
       ],
       "causal_metrics": {
         "fisher_p_value": 1.0,
-        "relative_risk": 0.9167,
+        "relative_risk": 0.9184,
         "absolute_rate_delta": -0.0067,
-        "is_statistically_significant": false
+        "is_statistically_significant": false,
+        "holm_adjusted_p_value": 1.0
       }
     },
     {
@@ -2248,10 +2253,11 @@
         false
       ],
       "causal_metrics": {
-        "fisher_p_value": 0.0,
-        "relative_risk": 2.8333,
+        "fisher_p_value": 3.7e-7,
+        "relative_risk": 2.7959,
         "absolute_rate_delta": 0.1467,
-        "is_statistically_significant": true
+        "is_statistically_significant": true,
+        "holm_adjusted_p_value": 3.7e-7
       }
     },
     {
@@ -2571,9 +2577,10 @@
       ],
       "causal_metrics": {
         "fisher_p_value": 0.0,
-        "relative_risk": 11.625,
+        "relative_risk": 11.4082,
         "absolute_rate_delta": 0.85,
-        "is_statistically_significant": true
+        "is_statistically_significant": true,
+        "holm_adjusted_p_value": 0.0
       }
     }
   ],
@@ -2743,7 +2750,10 @@
         "compute_saved_pct": 95.0,
         "log_likelihood_ratio": 88.42,
         "rejection_threshold_b": 2.9444
-      }
+      },
+      "fix_source": "nemotron_live",
+      "model_used": null,
+      "completion_id": null
     },
     {
       "attempt_number": 2,
@@ -4810,7 +4820,10 @@
         "compute_saved_pct": 0.0,
         "log_likelihood_ratio": -48.3,
         "rejection_threshold_b": 2.9444
-      }
+      },
+      "fix_source": "nemotron_live",
+      "model_used": null,
+      "completion_id": null
     }
   ],
   "final_verdict": "PASS",
@@ -4831,9 +4844,13 @@
     "algorithm": "SHA-256-Merkle",
     "repo_snapshot_sha256": "f713c8b2c773a84e22023fdd88634563c9507d15a9801afdc8da8c9415d08064",
     "patch_diff_sha256": "b68b674af9d1cf6e403b3d3a822c27c61dbe5b07faead3794eb13b1dd14a25e7",
-    "experiment_ledger_merkle_root": "eed8c866146c460936165051500804fb521b72761054bb5ee30aa5dd26f9bad5",
-    "certificate_digest_sha256": "1ea1cc2df06d10ff021be3ea6c3399563f142e7e6bf7f186c3b1c9ad60cfd449",
+    "experiment_ledger_merkle_root": "7f31920ebe3ff8b659752cf80b191c05732c5412139335abad2c987624931e80",
+    "certificate_digest_sha256": "2820f49da1aec2bcfdd02c7bc88cd70fd562e807087a3d3ddf61e40db392845a",
+    "hmac_signature": "3f906a72db80fb2151ffd5df548519c4f6717518febf9155d209ac28b1a5f26e",
+    "signing_mode": "hmac_sha256_server_secret",
     "verified": true
   },
-  "nemotron_reasoning_trace": null
+  "nemotron_reasoning_trace": null,
+  "llm_call_metadata": null,
+  "trace_origin": "recorded_execution"
 }

@@ -1,0 +1,30 @@
+Coinflip
+Copyright (c) 2026 Abhijith
+
+This product includes software developed as part of Coinflip, licensed under the MIT License.
+See the LICENSE file for details.
+
+================================================================================
+NVIDIA NEMOTRON OPEN MODEL LICENSE ATTRIBUTION
+================================================================================
+
+This product utilizes the following NVIDIA Nemotron models hosted on and accessed via
+Nebius Token Factory (https://api.tokenfactory.nebius.com/v1/):
+  - nvidia/Nemotron-3_5-Lightning
+  - nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B
+  - nvidia/nemotron-3-super-120b-a12b
+  - nvidia/Nemotron-3-Ultra-550b-a55b
+
+These models are developed and provided by NVIDIA Corporation and are subject to the
+NVIDIA Open Model License Agreement.
+
+Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+
+The NVIDIA Nemotron models are distributed under the terms of the NVIDIA Open Model
+License. By accessing, querying, or using these models, you agree to comply with the
+terms and conditions of the NVIDIA Open Model License, including applicable Acceptable
+Use Policies and attribution requirements.
+
+Model access endpoint:
+  https://api.tokenfactory.nebius.com/v1/
+Provided by Nebius Token Factory.

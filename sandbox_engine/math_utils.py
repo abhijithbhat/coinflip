@@ -1,28 +1,33 @@
-"""Deterministic mathematical and statistical utilities for Coinflip.
+"""Deterministic canonical biostatistics and mathematical utilities for Coinflip.
 
-Implements Wilson score confidence intervals and the Rule of Three upper confidence bounds
-without heavy external statistical dependencies.
+Implements:
+1. Two-sided 95% Wilson score confidence intervals.
+2. Exact one-sided 95% Clopper-Pearson upper confidence bounds (with 50-step bisection).
+3. One-sided Fisher's Exact Test via math.lgamma.
+4. Step-down Holm-Bonferroni multiple-comparison adjustment.
+5. Haldane-corrected Relative Risk & Effect determination.
+6. Wald's Sequential Probability Ratio Test (SPRT).
 """
 
 from __future__ import annotations
 
 import math
+from typing import Any
 
 from shared_contracts.schemas import CausalInferenceMetrics, SPRTExecutionTelemetry
+
+Z_95_TWO_SIDED: float = 1.959963984540054
 
 
 def wilson_ci_95(failures: int, total_runs: int) -> tuple[float, float]:
     """Computes the two-sided 95% Wilson score confidence interval (lower, upper).
 
-    For failures=21 and total_runs=300 (observed p=0.07), returns approximately
-    (0.046, 0.105) or (4.6% to 10.5%).
-
     Args:
-        failures: Number of observed failures (must be non-negative and <= total_runs).
-        total_runs: Total number of experiment runs (must be positive).
+        failures: Number of observed failures.
+        total_runs: Total number of experiment runs.
 
     Returns:
-        tuple[float, float]: (lower_bound, upper_bound) clamped to [0.0, 1.0].
+        tuple[float, float]: (lower_bound, upper_bound) clamped to [0.0, 1.0] and rounded to 4 decimals.
     """
     if total_runs <= 0:
         return (0.0, 1.0)
@@ -34,13 +39,12 @@ def wilson_ci_95(failures: int, total_runs: int) -> tuple[float, float]:
     n = float(total_runs)
     p = float(failures) / n
 
-    # Standard normal quantile for two-sided 95% CI: z ≈ 1.95996398454
-    z = 1.959963984540054
+    z = Z_95_TWO_SIDED
     z2 = z * z
 
     denom = 1.0 + z2 / n
     center = (p + z2 / (2.0 * n)) / denom
-    spread = (z * math.sqrt((p * (1.0 - p) / n) + (z2 / (4.0 * n * n)))) / denom
+    spread = (z * math.sqrt(max(0.0, (p * (1.0 - p) / n) + (z2 / (4.0 * n * n))))) / denom
 
     lower = max(0.0, center - spread)
     upper = min(1.0, center + spread)
@@ -48,126 +52,309 @@ def wilson_ci_95(failures: int, total_runs: int) -> tuple[float, float]:
     return (round(lower, 4), round(upper, 4))
 
 
-def upper_confidence_bound_95(failures: int, total_runs: int) -> float:
-    """Computes the conservative 95% upper confidence bound on failure rate.
-
-    - When failures == 0: applies the Rule of Three (3.0 / n), so 0/1000 clean runs
-      returns 0.0030 (0.30%).
-    - When failures > 0: computes a conservative 95% one-sided binomial upper bound
-      using the Wilson score method with z = 1.64485362695.
-
-    Args:
-        failures: Number of observed failures.
-        total_runs: Total number of experiment runs.
-
-    Returns:
-        float: Upper bound on the true failure rate at 95% confidence.
-    """
-    if total_runs <= 0:
-        return 1.0
-    if failures <= 0:
-        # Rule of Three: P(true rate <= 3 / n) >= 0.95 given 0 failures in n trials
-        return round(min(1.0, 3.0 / float(total_runs)), 4)
-
-    n = float(total_runs)
-    p = float(failures) / n
-
-    # One-sided 95% confidence interval quantile: z = 1.6448536269514722
-    z = 1.6448536269514722
-    z2 = z * z
-
-    denom = 1.0 + z2 / n
-    center = (p + z2 / (2.0 * n)) / denom
-    spread = (z * math.sqrt((p * (1.0 - p) / n) + (z2 / (4.0 * n * n)))) / denom
-
-    upper = min(1.0, center + spread)
-    return round(upper, 4)
-
-
 def _log_comb(n: int, k: int) -> float:
-    """Computes ln(n choose k) using math.lgamma for large numbers."""
+    """Computes ln(n choose k) using math.lgamma to avoid numerical overflow."""
     if k < 0 or k > n:
         return -float("inf")
     return math.lgamma(n + 1) - math.lgamma(k + 1) - math.lgamma(n - k + 1)
 
 
-def fishers_exact_p_value(k_base: int, n_base: int, k_pert: int, n_pert: int) -> float:
-    """Computes the one-sided Fisher's Exact Test p-value for perturbation failure rate increase.
+def clopper_pearson_upper_95(failures: int, total_runs: int) -> float:
+    """Exact one-sided 95% Clopper-Pearson upper confidence bound for ALL failures >= 0.
 
-    Evaluates the 2x2 contingency table:
-                  Failures     Passes
-    Baseline:      k_base   n_base - k_base
-    Perturbation:  k_pert   n_pert - k_pert
+    - If total_runs <= 0: returns 1.0.
+    - If failures >= total_runs: returns 1.0.
+    - If failures == 0: returns 1.0 - math.pow(0.05, 1.0 / total_runs).
+    - If failures > 0: uses 50 iterations of binary search on p in [failures/total_runs, 1.0]
+      solving sum_{i=0}^{failures} C(n, i) * p^i * (1-p)^(n-i) = 0.05 via math.lgamma.
 
     Args:
-        k_base: Observed failures in baseline batch.
-        n_base: Total runs in baseline batch.
-        k_pert: Observed failures in perturbation batch.
-        n_pert: Total runs in perturbation batch.
+        failures: Number of observed failures.
+        total_runs: Total experiment trials.
 
     Returns:
-        float: One-sided hypergeometric p-value bounded in [0.0, 1.0].
+        float: Upper confidence bound on failure rate at 95% confidence.
+    """
+    if total_runs <= 0:
+        return 1.0
+    if failures >= total_runs:
+        return 1.0
+    if failures <= 0:
+        bound = 1.0 - math.pow(0.05, 1.0 / float(total_runs))
+        return round(min(1.0, max(0.0, bound)), 4)
+
+    n = total_runs
+    k = failures
+
+    # Binary search / bisection on p in [failures / total_runs, 1.0]
+    low = float(k) / float(n)
+    high = 1.0
+
+    for _ in range(50):
+        mid = (low + high) / 2.0
+        # P(X <= k; n, mid) = sum_{i=0}^k C(n, i) * mid^i * (1 - mid)^(n - i)
+        prob = 0.0
+        log_mid = math.log(mid) if mid > 0.0 else -1000.0
+        log_one_minus_mid = math.log(1.0 - mid) if (1.0 - mid) > 0.0 else -1000.0
+
+        for i in range(k + 1):
+            log_term = _log_comb(n, i) + (i * log_mid) + ((n - i) * log_one_minus_mid)
+            prob += math.exp(log_term)
+
+        # Since P(X <= k; p) is strictly decreasing in p:
+        # If prob > 0.05, p must be larger to decrease prob towards 0.05
+        if prob > 0.05:
+            low = mid
+        else:
+            high = mid
+
+    return round((low + high) / 2.0, 4)
+
+
+def upper_confidence_bound_95(failures: int, total_runs: int) -> float:
+    """Alias for clopper_pearson_upper_95."""
+    return clopper_pearson_upper_95(failures, total_runs)
+
+
+def exact_binomial_upper_bound_95(arg1: int, arg2: int | None = None, **kwargs: Any) -> float:
+    """Alias calling clopper_pearson_upper_95.
+
+    Supports both exact_binomial_upper_bound_95(total_runs) (failures=0)
+    and exact_binomial_upper_bound_95(failures, total_runs).
+    """
+    if arg2 is None:
+        return clopper_pearson_upper_95(0, arg1)
+    return clopper_pearson_upper_95(arg1, arg2)
+
+
+def fishers_exact_p_value(
+    k_pert: int, n_pert: int, k_base: int, n_base: int
+) -> float:
+    """One-sided upper-tail hypergeometric exact test via math.lgamma.
+
+    Evaluates whether the failure rate in the perturbation batch is significantly
+    higher than in the baseline batch:
+                  Failures     Passes
+    Perturbation:  k_pert    n_pert - k_pert
+    Baseline:      k_base    n_base - k_base
+
+    Args:
+        k_pert: Observed failures in perturbation batch.
+        n_pert: Total runs in perturbation batch.
+        k_base: Observed failures in baseline batch.
+        n_base: Total runs in baseline batch.
+
+    Returns:
+        float: One-sided hypergeometric p-value in [0.0, 1.0].
     """
     if n_base <= 0 or n_pert <= 0:
         return 1.0
 
-    # If perturbation has zero failures or failure rate <= baseline, no significant increase
-    if k_pert == 0 or (k_pert / n_pert) <= (k_base / n_base):
+    if k_pert <= 0 or (k_pert / n_pert) <= (k_base / n_base):
         return 1.0
 
     total_n = n_base + n_pert
     total_k = k_base + k_pert
 
-    # Hypergeometric upper tail sum: sum_{x = k_pert}^{min(n_pert, total_k)} P(X = x)
     log_denom = _log_comb(total_n, n_pert)
     p_value = 0.0
     max_x = min(n_pert, total_k)
 
     for x in range(k_pert, max_x + 1):
         y = total_k - x
-        if 0 <= y <= n_base:
-            log_num = _log_comb(n_pert, x) + _log_comb(n_base, y)
-            log_prob = log_num - log_denom
-            p_value += math.exp(log_prob)
+        if 0 <= (n_pert - x) <= (total_n - total_k) and 0 <= y <= n_base:
+            log_num = _log_comb(total_k, x) + _log_comb(total_n - total_k, n_pert - x)
+            p_value += math.exp(log_num - log_denom)
 
     return round(min(1.0, max(0.0, p_value)), 8)
 
 
-def compute_causal_metrics(
-    k_base: int, n_base: int, k_pert: int, n_pert: int
-) -> CausalInferenceMetrics:
-    """Computes causal inference and contingency statistical significance metrics.
+def holm_bonferroni_adjust(p_values: list[float]) -> list[float]:
+    """Step-down Holm-Bonferroni multiple-comparison adjustment across m p-values.
+
+    Sort indices by ascending p, compute:
+        adj[idx] = min(1.0, max_{j <= i} ((m - j) * p_sorted[j]))  (0-indexed j)
+    and return adjusted p-values in original order.
 
     Args:
-        k_base: Baseline failure count.
-        n_base: Baseline total runs.
-        k_pert: Perturbation failure count.
-        n_pert: Perturbation total runs.
+        p_values: List of unadjusted p-values.
 
     Returns:
-        CausalInferenceMetrics: Validated metrics including Fisher p-value and Relative Risk.
+        list[float]: Adjusted p-values in the exact original list order.
     """
-    p_val = fishers_exact_p_value(k_base, n_base, k_pert, n_pert)
-    rate_base = k_base / max(1, n_base)
-    rate_pert = k_pert / max(1, n_pert)
-    delta = round(rate_pert - rate_base, 4)
+    m = len(p_values)
+    if m == 0:
+        return []
 
-    # Relative Risk calculation with continuity handling
-    if rate_base > 0:
-        rr = round(rate_pert / rate_base, 4)
-    else:
-        pseudo_base = 0.5 / max(1, n_base)
-        pseudo_pert = (k_pert + 0.5) / max(1, n_pert)
-        rr = round(pseudo_pert / pseudo_base, 4)
+    sorted_indices = sorted(range(m), key=lambda idx: p_values[idx])
+    p_sorted = [p_values[idx] for idx in sorted_indices]
 
-    is_significant = (p_val < 0.05) and (delta > 0.0)
+    adj_sorted: list[float] = [0.0] * m
+    max_running = 0.0
+    for i in range(m):
+        val = (m - i) * p_sorted[i]
+        if val > max_running:
+            max_running = val
+        adj_sorted[i] = min(1.0, max_running)
 
-    return CausalInferenceMetrics(
-        fisher_p_value=p_val,
-        relative_risk=rr,
-        absolute_rate_delta=delta,
-        is_statistically_significant=is_significant,
+    result: list[float] = [0.0] * m
+    for i, orig_idx in enumerate(sorted_indices):
+        result[orig_idx] = round(adj_sorted[i], 6)
+
+    return result
+
+
+def relative_risk_and_effect(
+    k_pert: int,
+    n_pert: int,
+    k_base: int,
+    n_base: int,
+    holm_adjusted_p_value: float | None = None,
+) -> dict[str, Any]:
+    """Haldane-corrected Relative Risk and effect determination.
+
+    Relative Risk:
+        ((k_pert + 0.5) / (n_pert + 0.5)) / ((k_base + 0.5) / (n_base + 0.5))
+    Flag significance ONLY when holm_adjusted_p_value < 0.01 and relative_risk >= 1.8.
+
+    Args:
+        k_pert: Perturbation failures.
+        n_pert: Perturbation total runs.
+        k_base: Baseline failures.
+        n_base: Baseline total runs.
+        holm_adjusted_p_value: Optional precomputed Holm-Bonferroni adjusted p-value.
+
+    Returns:
+        dict[str, Any]: relative_risk, rate_delta, p_value, holm_adjusted_p_value, is_statistically_significant.
+    """
+    pert_rate_haldane = (k_pert + 0.5) / (max(n_pert, 0) + 0.5)
+    base_rate_haldane = (k_base + 0.5) / (max(n_base, 0) + 0.5)
+    rr = round(pert_rate_haldane / base_rate_haldane, 4)
+
+    raw_rate_pert = k_pert / max(n_pert, 1)
+    raw_rate_base = k_base / max(n_base, 1)
+    rate_delta = round(raw_rate_pert - raw_rate_base, 4)
+
+    raw_p = fishers_exact_p_value(k_pert, n_pert, k_base, n_base)
+    adj_p = holm_adjusted_p_value if holm_adjusted_p_value is not None else raw_p
+
+    is_significant = bool(adj_p < 0.01 and rr >= 1.8)
+
+    return {
+        "relative_risk": rr,
+        "rate_delta": rate_delta,
+        "p_value": raw_p,
+        "holm_adjusted_p_value": adj_p,
+        "is_statistically_significant": is_significant,
+    }
+
+
+def compute_causal_metrics(
+    k_base: int = 0,
+    n_base: int = 1,
+    k_pert: int = 0,
+    n_pert: int = 1,
+    holm_adjusted_p_value: float | None = None,
+    **kwargs: Any,
+) -> CausalInferenceMetrics:
+    """Computes causal inference and contingency statistical significance metrics."""
+    res = relative_risk_and_effect(
+        k_pert=k_pert,
+        n_pert=n_pert,
+        k_base=k_base,
+        n_base=n_base,
+        holm_adjusted_p_value=holm_adjusted_p_value,
     )
+    return CausalInferenceMetrics(
+        fisher_p_value=res["p_value"],
+        relative_risk=res["relative_risk"],
+        absolute_rate_delta=res["rate_delta"],
+        is_statistically_significant=res["is_statistically_significant"],
+        holm_adjusted_p_value=res["holm_adjusted_p_value"],
+    )
+
+
+def wald_sprt_sequential_check(
+    failures: int,
+    runs: int,
+    p0: float = 0.003,
+    p1: float = 0.05,
+    alpha: float = 0.05,
+    beta: float = 0.05,
+    target_runs: int = 1000,
+    **kwargs: Any,
+) -> dict[str, Any]:
+    """Evaluates Wald's Sequential Probability Ratio Test (SPRT).
+
+    Tests:
+        H0: p <= p0 (failure rate <= 0.3%, patch eliminates flake)
+        H1: p >= p1 (failure rate >= 5.0%, patch still exhibits stress flakiness)
+
+    Thresholds:
+        B = math.log((1 - beta) / alpha)   (~2.9444)
+        A = math.log(beta / (1 - alpha))   (~-2.9444)
+
+    Status:
+        - "REJECTED_EARLY_STOP" if llr >= B
+        - "ACCEPTED_H0" if llr <= A
+        - "IN_PROGRESS_CONTINUE" if A < llr < B
+    (never return "REJECTED" for in-progress runs).
+
+    Args:
+        failures: Cumulative failures observed.
+        runs: Number of runs executed.
+        p0: Null hypothesis failure rate bound.
+        p1: Alternative hypothesis failure rate bound.
+        alpha: Type I error rate.
+        beta: Type II error rate.
+        target_runs: Total planned certification runs.
+
+    Returns:
+        dict with status, log_likelihood_ratio, bounds, and compute savings.
+    """
+    if "runs_completed" in kwargs and runs == 0:
+        runs = int(kwargs["runs_completed"])
+
+    B = math.log((1.0 - beta) / alpha)
+    A = math.log(beta / (1.0 - alpha))
+
+    k = max(0, failures)
+    m = max(0, runs)
+    k_pass = m - k
+
+    if m <= 0:
+        llr = 0.0
+    else:
+        log_ratio_p = math.log(p1 / p0)
+        log_ratio_q = math.log((1.0 - p1) / (1.0 - p0))
+        llr = (k * log_ratio_p) + (k_pass * log_ratio_q)
+
+    if llr >= B:
+        status = "REJECTED_EARLY_STOP"
+    elif llr <= A:
+        status = "ACCEPTED_H0"
+    else:
+        status = "IN_PROGRESS_CONTINUE"
+
+    runs_saved = max(0, target_runs - m) if status in ("REJECTED_EARLY_STOP", "ACCEPTED_H0") else 0
+    saved_pct = round((runs_saved / max(target_runs, 1)) * 100.0, 1)
+
+    return {
+        "status": status,
+        "log_likelihood_ratio": round(llr, 4),
+        "llr": round(llr, 4),
+        "upper_rejection_bound": round(B, 4),
+        "lower_acceptance_bound": round(A, 4),
+        "B": round(B, 4),
+        "A": round(A, 4),
+        "failures": k,
+        "runs": m,
+        "runs_completed": m,
+        "target_runs": target_runs,
+        "runs_saved": runs_saved,
+        "compute_saved_pct": saved_pct,
+        "early_stopped": status in ("REJECTED_EARLY_STOP", "ACCEPTED_H0"),
+    }
 
 
 def wald_sprt_check(
@@ -178,91 +365,53 @@ def wald_sprt_check(
     p1: float = 0.05,
     target_limit: float = 0.005,
 ) -> SPRTExecutionTelemetry:
-    """Evaluates Wald's Sequential Probability Ratio Test (SPRT) for early-stop certification.
+    """Evaluates Wald's Sequential Probability Ratio Test for patch verifier telemetry."""
+    res = wald_sprt_sequential_check(
+        failures=failures,
+        runs=runs_done,
+        p0=p0,
+        p1=p1,
+        target_runs=target_runs,
+    )
+    llr = res["log_likelihood_ratio"]
+    b_thresh = res["upper_rejection_bound"]
 
-    Tests:
-        H0: p <= p0 (failure rate <= 0.3%, patch eliminates flake)
-        H1: p >= p1 (failure rate >= 5.0%, patch still exhibits stress flakiness)
-
-    Args:
-        failures: Cumulative failures observed so far under stress.
-        runs_done: Number of runs executed so far under stress.
-        target_runs: Nominal full certification budget (e.g., 1,000).
-        p0: Null hypothesis failure rate bound (default: 0.003).
-        p1: Alternative hypothesis failure rate bound (default: 0.05).
-        target_limit: Maximum certified failure rate threshold (default: 0.005).
-
-    Returns:
-        SPRTExecutionTelemetry: Decision boundary telemetry and compute savings.
-    """
-    if runs_done <= 0:
-        return SPRTExecutionTelemetry(
-            enabled=True,
-            early_stopped=False,
-            decision="FULL_SAMPLE_REJECTED",
-            runs_executed_stress=0,
-            target_runs_stress=target_runs,
-            runs_saved=0,
-            compute_saved_pct=0.0,
-            log_likelihood_ratio=0.0,
-            rejection_threshold_b=2.9444,
-        )
-
-    # Type I error alpha = 0.05, Type II error beta = 0.05
-    alpha = 0.05
-    beta = 0.05
-    b_threshold = math.log((1.0 - beta) / alpha)  # ln(0.95 / 0.05) ≈ 2.9444
-
-    k = failures
-    m = runs_done
-    k_pass = m - k
-
-    log_ratio_p = math.log(p1 / p0)
-    log_ratio_q = math.log((1.0 - p1) / (1.0 - p0))
-
-    llr = (k * log_ratio_p) + (k_pass * log_ratio_q)
-
-    # Condition 1: Overwhelming evidence of flakiness -> Early Rejection!
-    if llr >= b_threshold and m < target_runs:
-        runs_saved = max(0, target_runs - m)
-        saved_pct = round((runs_saved / target_runs) * 100.0, 1)
+    if res["status"] == "REJECTED_EARLY_STOP" and runs_done < target_runs:
         return SPRTExecutionTelemetry(
             enabled=True,
             early_stopped=True,
             decision="EARLY_REJECT_STRESS",
-            runs_executed_stress=m,
+            runs_executed_stress=runs_done,
             target_runs_stress=target_runs,
-            runs_saved=runs_saved,
-            compute_saved_pct=saved_pct,
-            log_likelihood_ratio=round(llr, 4),
-            rejection_threshold_b=round(b_threshold, 4),
+            runs_saved=res["runs_saved"],
+            compute_saved_pct=res["compute_saved_pct"],
+            log_likelihood_ratio=llr,
+            rejection_threshold_b=b_thresh,
         )
 
-    # Condition 2: Completed full sample budget
-    if m >= target_runs:
-        ucb = upper_confidence_bound_95(failures, m)
+    if runs_done >= target_runs:
+        ucb = clopper_pearson_upper_95(failures, runs_done)
         decision = "FULL_SAMPLE_CERTIFIED" if (failures == 0 and ucb <= target_limit) else "FULL_SAMPLE_REJECTED"
         return SPRTExecutionTelemetry(
             enabled=True,
             early_stopped=False,
             decision=decision,
-            runs_executed_stress=m,
+            runs_executed_stress=runs_done,
             target_runs_stress=target_runs,
             runs_saved=0,
             compute_saved_pct=0.0,
-            log_likelihood_ratio=round(llr, 4),
-            rejection_threshold_b=round(b_threshold, 4),
+            log_likelihood_ratio=llr,
+            rejection_threshold_b=b_thresh,
         )
 
-    # Inconclusive (continue sampling)
     return SPRTExecutionTelemetry(
         enabled=True,
         early_stopped=False,
-        decision="FULL_SAMPLE_REJECTED",
-        runs_executed_stress=m,
+        decision="IN_PROGRESS_CONTINUE",
+        runs_executed_stress=runs_done,
         target_runs_stress=target_runs,
         runs_saved=0,
         compute_saved_pct=0.0,
-        log_likelihood_ratio=round(llr, 4),
-        rejection_threshold_b=round(b_threshold, 4),
+        log_likelihood_ratio=llr,
+        rejection_threshold_b=b_thresh,
     )
