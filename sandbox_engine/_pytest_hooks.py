@@ -19,7 +19,8 @@ import socket
 import sys
 import threading
 import time
-from typing import Any, Generator
+from collections.abc import Generator
+from typing import Any
 
 # Save original unpatched functions and settings
 _ORIG_TIME = time.time
@@ -83,10 +84,22 @@ def perturbation_runtime_context(
 
         # 2. Seed Change
         if pert_normalized in ("seed_change", "seed"):
-            per_run_seed = 10000 + run_id * 7919
+            seed_str = os.environ.get("COINFLIP_RANDOM_SEED")
+            if seed_str:
+                try:
+                    per_run_seed = int(seed_str)
+                except ValueError:
+                    per_run_seed = 10000 + run_id * 7919
+            else:
+                per_run_seed = 10000 + run_id * 7919
             random.seed(per_run_seed)
             if "numpy.random" in sys.modules:
-                getattr(sys.modules["numpy.random"], "seed")(per_run_seed % (2**32 - 1))
+                sys.modules["numpy.random"].seed(per_run_seed % (2**32 - 1))
+        else:
+            # Baseline and other non-seed perturbations: seed with fixed seed so unpinned tests are quiet
+            random.seed(42)
+            if "numpy.random" in sys.modules:
+                sys.modules["numpy.random"].seed(42)
 
         # 3. Clock Shift (with wall-clock skew per call, leaving monotonic untouched)
         if pert_normalized in ("clock_shift", "clock"):
@@ -135,7 +148,6 @@ def perturbation_runtime_context(
 
 def pytest_configure(config: Any) -> None:
     """Configures global session state."""
-    pass
 
 
 def pytest_collection_modifyitems(session: Any, config: Any, items: list[Any]) -> None:

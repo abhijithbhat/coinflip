@@ -11,19 +11,18 @@ Executes the complete investigation and verification pipeline:
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
-import json
 import logging
+import uuid
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
-import uuid
 
-from sandbox_engine.attestation import CertificateAttestor, attest_trace, verify_trace_attestation
+from sandbox_engine.attestation import (
+    CertificateAttestor,
+)
 from sandbox_engine.batch_runner import SandboxBatchRunner
 from sandbox_engine.image_builder import SandboxImageBuilder
 from sandbox_engine.llm_bridge import (
-    MODEL_FAST,
-    MODEL_REASONING,
     NemotronBridge,
 )
 from sandbox_engine.math_utils import compute_causal_metrics
@@ -129,7 +128,7 @@ class CoinflipOrchestrator:
             CoinflipCertificateTrace: Validated end-to-end trace artifact.
         """
         trace_id = f"coinflip_trace_{uuid.uuid4().hex[:12]}"
-        timestamp_utc = datetime.now(timezone.utc).isoformat()
+        timestamp_utc = datetime.now(UTC).isoformat()
         logger.info("Starting Coinflip Run %s for %s::%s (fast_live_mode=%s)", trace_id, self.project_name, self.test_target, fast_live_mode)
 
         def _notify(evt: str, data: dict[str, Any]) -> None:
@@ -250,6 +249,22 @@ class CoinflipOrchestrator:
                     highest_rate = score
                     triggering_condition = batch_res.perturbation
 
+        # Apply Holm-Bonferroni step-down multiple comparison adjustment across Stage 2
+        from sandbox_engine.math_utils import holm_bonferroni_adjust
+
+        raw_p_values = [
+            r.causal_metrics.fisher_p_value if r.causal_metrics else 1.0
+            for r in stage2_ledger
+        ]
+        adjusted_p_values = holm_bonferroni_adjust(raw_p_values)
+
+        for r, adj_p in zip(stage2_ledger, adjusted_p_values):
+            if r.causal_metrics:
+                r.causal_metrics.holm_adjusted_p_value = adj_p
+                r.causal_metrics.is_statistically_significant = bool(
+                    adj_p < 0.01 and r.causal_metrics.relative_risk >= 1.8
+                )
+
         logger.info("Stage 2 Triggering Stress Condition Identified: %s", triggering_condition.value)
         _notify("stage2_done", {
             "stage": 2,
@@ -323,6 +338,9 @@ class CoinflipOrchestrator:
                 target_limit=target_limit,
                 target_file_rel=self.test_target,
                 fast_live_mode=fast_live_mode,
+                fix_source="naive_baseline_fixture",
+                model_used=None,
+                completion_id=None,
             )
             fix_attempts.append(eval_attempt_1)
             logger.info("Attempt 1 Verdict: %s", eval_attempt_1.verdict)
@@ -347,6 +365,7 @@ class CoinflipOrchestrator:
         real_diag = "Root cause identified and repaired with deterministic invariant synchronization."
         real_code = original_test_code
 
+        nemotron_call_ok = False
         try:
             real_title, real_diag, real_code = await asyncio.wait_for(
                 asyncio.to_thread(
@@ -360,8 +379,10 @@ class CoinflipOrchestrator:
                 ),
                 timeout=12.0,  # 12.0s realistic timeout for real Nebius Token Factory call
             )
+            nemotron_call_ok = True
         except Exception as e:
             logger.warning("Nemotron call timed out or failed (%s). Using verified benchmark patch.", e)
+            nemotron_call_ok = False
             if cert_patch_file.exists():
                 real_code = cert_patch_file.read_text(encoding="utf-8")
             else:
@@ -373,6 +394,18 @@ class CoinflipOrchestrator:
                     previous_rejected_attempts=fix_attempts,
                     service_code=service_code,
                 )
+
+        diag_meta = getattr(self.llm, "diagnose_call_metadata", {}) or {}
+        if nemotron_call_ok and diag_meta.get("live_api_succeeded") and diag_meta.get("completion_id"):
+            c2_fix_source: Literal["nemotron_live", "naive_baseline_fixture", "offline_fallback_fixture"] = "nemotron_live"
+            c2_model_used = str(diag_meta.get("model")) if diag_meta.get("model") else None
+            c2_completion_id = str(diag_meta.get("completion_id")) if diag_meta.get("completion_id") else None
+        else:
+            c2_fix_source = "offline_fallback_fixture"
+            c2_model_used = None
+            c2_completion_id = None
+            if cert_patch_file.exists():
+                real_code = cert_patch_file.read_text(encoding="utf-8")
 
         _notify("stage4_certification", {
             "stage": 4,
@@ -389,6 +422,9 @@ class CoinflipOrchestrator:
             target_limit=target_limit,
             target_file_rel=self.test_target,
             fast_live_mode=fast_live_mode,
+            fix_source=c2_fix_source,
+            model_used=c2_model_used,
+            completion_id=c2_completion_id,
         )
         fix_attempts.append(eval_attempt_2)
         logger.info("Attempt 2 Verdict: %s", eval_attempt_2.verdict)
@@ -418,6 +454,14 @@ class CoinflipOrchestrator:
             "last_call": getattr(self.llm, "last_call_metadata", {}) or {},
         }
 
+        # Dynamically record only models that were actually called and succeeded
+        models_used: dict[str, str] = {}
+        sum_meta = getattr(self.llm, "summarize_call_metadata", {}) or {}
+        if sum_meta.get("live_api_succeeded") and sum_meta.get("model"):
+            models_used["bulk_log_reading"] = str(sum_meta["model"])
+        if diag_meta.get("live_api_succeeded") and diag_meta.get("model"):
+            models_used["deep_reasoning"] = str(diag_meta["model"])
+
         trace = CoinflipCertificateTrace(
             trace_id=trace_id,
             timestamp_utc=timestamp_utc,
@@ -429,10 +473,7 @@ class CoinflipOrchestrator:
             triggering_stress_condition=triggering_condition,
             fix_attempts=fix_attempts,
             final_verdict=final_verdict,
-            models_used={
-                "bulk_log_reading": getattr(self.llm, "summarize_call_metadata", {}).get("model") or MODEL_FAST,
-                "deep_reasoning": getattr(self.llm, "diagnose_call_metadata", {}).get("model") or (MODEL_FAST if fast_live_mode else MODEL_REASONING),
-            },
+            models_used=models_used,
             race_timeline=race_profile,
             llm_call_metadata=llm_metadata,
         )
@@ -462,7 +503,6 @@ class CoinflipOrchestrator:
 
         return trace
 
-    run_full_pipeline = run
 
     async def run_from_benchmark_folder(
         self,

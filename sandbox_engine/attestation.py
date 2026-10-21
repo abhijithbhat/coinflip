@@ -21,9 +21,9 @@ import hmac
 import json
 import logging
 import os
-from pathlib import Path
 import sys
-from typing import Any, Optional, Union
+from pathlib import Path
+from typing import Any
 
 # Ensure workspace root is in sys.path
 workspace_root = Path(__file__).resolve().parent.parent
@@ -31,8 +31,6 @@ if str(workspace_root) not in sys.path:
     sys.path.insert(0, str(workspace_root))
 
 from shared_contracts.schemas import (
-    BatchExperimentResult,
-    CandidateFixEvaluation,
     CoinflipCertificateTrace,
     CryptographicAttestation,
 )
@@ -55,14 +53,14 @@ class CertificateAttestor:
 
     IGNORED_DIRS = {".git", ".venv", "venv", "__pycache__", ".pytest_cache", ".DS_Store", "node_modules"}
 
-    def compute_repo_snapshot_sha256(self, repo_dir: Optional[Union[Path, str]] = None) -> str:
+    def compute_repo_snapshot_sha256(self, repo_dir: Path | str | None = None) -> str:
         """Computes deterministic SHA-256 hash across all tracked repository files."""
         if not repo_dir:
             return hashlib.sha256(b"coinflip-standard-hermetic-environment-v1").hexdigest()
 
         path = Path(repo_dir).resolve()
         if not path.exists():
-            return hashlib.sha256(f"missing-repo:{path}".encode("utf-8")).hexdigest()
+            return hashlib.sha256(f"missing-repo:{path}".encode()).hexdigest()
 
         file_digests: list[str] = []
         for root, dirs, files in os.walk(path):
@@ -89,7 +87,7 @@ class CertificateAttestor:
         return hashlib.sha256(normalized).hexdigest()
 
     def extract_ledger_records(
-        self, trace: Union[CoinflipCertificateTrace, dict[str, Any]]
+        self, trace: CoinflipCertificateTrace | dict[str, Any]
     ) -> list[tuple[str, int, int, int, str]]:
         """Extracts canonical (perturbation, total_runs, failures, passes, dots_bitstring) tuples from all stages."""
         records: list[tuple[str, int, int, int, str]] = []
@@ -181,12 +179,7 @@ class CertificateAttestor:
 
     def compute_ledger_merkle_root(
         self,
-        trace_or_records: Union[
-            CoinflipCertificateTrace,
-            dict[str, Any],
-            list[tuple[str, int, int, int, str]],
-            list[tuple[str, int, int, int]],
-        ],
+        trace_or_records: CoinflipCertificateTrace | dict[str, Any] | list[tuple[str, int, int, int, str]] | list[tuple[str, int, int, int]],
     ) -> str:
         """Constructs a binary SHA-256 Merkle tree over all experiment ledger batches.
 
@@ -230,12 +223,12 @@ class CertificateAttestor:
         repo_snapshot_sha256: str,
         patch_diff_sha256: str,
         experiment_ledger_merkle_root: str,
-        secret: Optional[str] = None,
+        secret: str | None = None,
     ) -> str:
         """Computes HMAC-SHA256 signature binding the repo, patch, and Merkle root."""
         if secret is None:
             secret = os.environ.get("COINFLIP_ATTESTATION_SECRET", "coinflip-merkle-hmac-v1-2026")
-        payload_bytes = f"{repo_snapshot_sha256}:{patch_diff_sha256}:{experiment_ledger_merkle_root}".encode("utf-8")
+        payload_bytes = f"{repo_snapshot_sha256}:{patch_diff_sha256}:{experiment_ledger_merkle_root}".encode()
         return hmac.new(secret.encode("utf-8"), payload_bytes, hashlib.sha256).hexdigest()
 
     def compute_certificate_digest(
@@ -253,7 +246,7 @@ class CertificateAttestor:
     def attest_trace(
         self,
         trace: CoinflipCertificateTrace,
-        repo_dir: Optional[Union[Path, str]] = None,
+        repo_dir: Path | str | None = None,
     ) -> CoinflipCertificateTrace:
         """Signs a CoinflipCertificateTrace, populating its attestation field with Merkle root and HMAC."""
         certified_patch = ""
@@ -290,8 +283,8 @@ class CertificateAttestor:
 
     def build_trace_attestation(
         self,
-        trace: Union[CoinflipCertificateTrace, dict[str, Any]],
-        repo_dir: Optional[Union[Path, str]] = None,
+        trace: CoinflipCertificateTrace | dict[str, Any],
+        repo_dir: Path | str | None = None,
     ) -> CryptographicAttestation:
         """Constructs and returns CryptographicAttestation for a trace or dict."""
         if isinstance(trace, dict):
@@ -330,18 +323,18 @@ class CertificateAttestor:
             return signed.attestation
 
     def verify_trace(
-        self, trace: Union[dict[str, Any], CoinflipCertificateTrace]
+        self, trace: dict[str, Any] | CoinflipCertificateTrace
     ) -> dict[str, Any]:
         """Comprehensive verification of trace leaf counts, Merkle root, and HMAC signature."""
         return verify_trace(trace)
 
-    def verify_trace_attestation(self, trace: Union[dict[str, Any], CoinflipCertificateTrace]) -> bool:
+    def verify_trace_attestation(self, trace: dict[str, Any] | CoinflipCertificateTrace) -> bool:
         """Cryptographically verifies that the trace's ledger and patch are authentic and untampered."""
         result = verify_trace(trace)
         return bool(result.get("verified", False))
 
 
-def verify_trace(trace: Union[dict[str, Any], CoinflipCertificateTrace]) -> dict[str, Any]:
+def verify_trace(trace: dict[str, Any] | CoinflipCertificateTrace) -> dict[str, Any]:
     """Cryptographically verifies trace integrity against forgery or tampering.
 
     Execution:
@@ -451,29 +444,32 @@ def verify_trace(trace: Union[dict[str, Any], CoinflipCertificateTrace]) -> dict
     computed_root = attestor.compute_ledger_merkle_root(data)
     root_valid = bool(claimed_root and hmac.compare_digest(claimed_root, computed_root))
 
-    # Step 4: Verify HMAC signature
+    # Step 4: Verify patch diff SHA-256 and HMAC signature
     repo_sha = str(attestation.get("repo_snapshot_sha256") or attestor.compute_repo_snapshot_sha256(None))
-    patch_sha = str(attestation.get("patch_diff_sha256") or attestation.get("patch_sha256") or "")
-    if not patch_sha:
-        certified_patch = ""
-        for attempt in reversed(data.get("fix_attempts", [])):
-            if attempt.get("verdict") == "CERTIFIED":
-                certified_patch = attempt.get("git_diff_patch", "")
-                break
-        if not certified_patch and data.get("fix_attempts"):
-            certified_patch = data.get("fix_attempts")[-1].get("git_diff_patch", "")
-        patch_sha = attestor.compute_patch_diff_sha256(certified_patch)
+    claimed_patch_sha = str(attestation.get("patch_diff_sha256") or attestation.get("patch_sha256") or "")
 
-    computed_hmac = attestor.compute_hmac_signature(repo_sha, patch_sha, computed_root)
+    certified_patch = ""
+    for attempt in reversed(data.get("fix_attempts", [])):
+        if attempt.get("verdict") == "CERTIFIED":
+            certified_patch = attempt.get("git_diff_patch", "")
+            break
+    if not certified_patch and data.get("fix_attempts"):
+        certified_patch = data.get("fix_attempts")[-1].get("git_diff_patch", "")
+    actual_patch_sha = attestor.compute_patch_diff_sha256(certified_patch)
+
+    patch_valid = bool(not claimed_patch_sha or hmac.compare_digest(claimed_patch_sha, actual_patch_sha))
+    computed_hmac = attestor.compute_hmac_signature(repo_sha, actual_patch_sha, computed_root)
 
     if claimed_hmac is not None:
         hmac_valid = bool(hmac.compare_digest(claimed_hmac, computed_hmac))
     else:
         hmac_valid = True
 
-    is_verified = bool(leaf_counts_valid and root_valid and hmac_valid)
+    is_verified = bool(leaf_counts_valid and root_valid and patch_valid and hmac_valid)
     if not root_valid:
         reason = f"Merkle root mismatch! Claimed: {claimed_root}, Computed: {computed_root}"
+    elif not patch_valid:
+        reason = f"Patch diff SHA-256 mismatch! Claimed: {claimed_patch_sha}, Computed: {actual_patch_sha}"
     elif claimed_hmac is not None and not hmac_valid:
         reason = f"HMAC signature mismatch! Claimed: {claimed_hmac}, Computed: {computed_hmac}"
     else:
@@ -484,19 +480,20 @@ def verify_trace(trace: Union[dict[str, Any], CoinflipCertificateTrace]) -> dict
         "claimed_merkle_root": claimed_root,
         "computed_merkle_root": computed_root,
         "leaf_counts_valid": leaf_counts_valid,
+        "patch_valid": patch_valid,
         "hmac_valid": hmac_valid,
         "reason": reason,
     }
 
 
 def attest_trace(
-    trace: CoinflipCertificateTrace, repo_dir: Optional[Union[Path, str]] = None
+    trace: CoinflipCertificateTrace, repo_dir: Path | str | None = None
 ) -> CoinflipCertificateTrace:
     """Convenience functional helper to sign a CoinflipCertificateTrace."""
     return CertificateAttestor().attest_trace(trace, repo_dir=repo_dir)
 
 
-def verify_trace_attestation(trace: Union[dict[str, Any], CoinflipCertificateTrace]) -> bool:
+def verify_trace_attestation(trace: dict[str, Any] | CoinflipCertificateTrace) -> bool:
     """Convenience functional helper to verify a CoinflipCertificateTrace."""
     return CertificateAttestor().verify_trace_attestation(trace)
 

@@ -18,14 +18,13 @@ import asyncio
 import concurrent.futures
 import json
 import logging
-import os
-from pathlib import Path
 import sys
+from pathlib import Path
 from typing import Any
 
 from sandbox_engine.batch_runner import SandboxBatchRunner
 from sandbox_engine.image_builder import SandboxImageBuilder
-from sandbox_engine.math_utils import upper_confidence_bound_95, wilson_ci_95
+from sandbox_engine.math_utils import upper_confidence_bound_95
 from shared_contracts.schemas import PerturbationType
 
 logger = logging.getLogger("sandbox_engine.mcp_verifier_tool")

@@ -12,14 +12,12 @@ import inspect
 import io
 import json
 import os
-from pathlib import Path
-import random
 import socket
 import sys
-import threading
 import time
 import traceback
-from typing import Any, Callable
+from collections.abc import Callable
+from pathlib import Path
 
 # Ensure workspace root is in sys.path
 workspace_root = Path(__file__).resolve().parent.parent
@@ -64,6 +62,12 @@ def run_worker_chunk(
         if matches:
             target_path = matches[0]
 
+    # Clean up any previously imported test modules to prevent pytest import file mismatch
+    mod_name = target_path.stem
+    for k in list(sys.modules.keys()):
+        if k == mod_name or k.startswith(f"{mod_name}."):
+            sys.modules.pop(k, None)
+
     # Execute conftest.py if present to initialize path & fixture context
     conftest_path = temp_dir / "conftest.py"
     if conftest_path.exists():
@@ -77,13 +81,11 @@ def run_worker_chunk(
 
     direct_test_funcs: list[Callable[[], None]] = []
     can_direct_exec = False
-    test_module: Any = None
     if target_path.exists() and target_path.suffix == ".py":
         try:
             spec = importlib.util.spec_from_file_location("coinflip_chunk_target", str(target_path))
             if spec and spec.loader:
                 mod = importlib.util.module_from_spec(spec)
-                test_module = mod
                 sys.modules["coinflip_chunk_target"] = mod
                 spec.loader.exec_module(mod)
                 funcs = [
@@ -91,7 +93,12 @@ def run_worker_chunk(
                     for name in dir(mod)
                     if name.startswith("test_") and callable(getattr(mod, name))
                 ]
-                if funcs and all(len(inspect.signature(f).parameters) == 0 for f in funcs):
+                has_fixtures = any(
+                    hasattr(getattr(mod, name), "_fixture_function_marker")
+                    or hasattr(getattr(mod, name), "_pytestfixturefunction")
+                    for name in dir(mod)
+                )
+                if not has_fixtures and funcs and all(len(inspect.signature(f).parameters) == 0 for f in funcs):
                     funcs.sort(key=lambda f: f.__code__.co_firstlineno)
                     direct_test_funcs = funcs
                     can_direct_exec = True
@@ -158,6 +165,7 @@ def run_worker_chunk(
             import pytest
 
             for run_id in run_ids:
+                sys.modules.pop(mod_name, None)
                 ctx = build_perturbation_context(perturbation, run_id=run_id, base_seed=base_seed)
                 os.environ.update(ctx.env_vars)
 

@@ -13,8 +13,8 @@ from __future__ import annotations
 
 import logging
 import os
-from pathlib import Path
 import re
+from pathlib import Path
 from typing import Any
 
 from dotenv import load_dotenv
@@ -100,6 +100,15 @@ class NemotronBridge:
                 if not content.strip() and hasattr(msg, "reasoning_content") and msg.reasoning_content:
                     content = str(msg.reasoning_content)
                 if content.strip():
+                    meta = {
+                        "live_api_succeeded": True,
+                        "completion_id": getattr(resp, "id", f"nebius-{os.urandom(4).hex()}"),
+                        "model": getattr(resp, "model", m),
+                        "prompt_tokens": getattr(getattr(resp, "usage", None), "prompt_tokens", 0) or 0,
+                        "completion_tokens": getattr(getattr(resp, "usage", None), "completion_tokens", 0) or 0,
+                        "fallback_used": (m != model),
+                    }
+                    self.last_call_metadata = meta
                     return content
             except Exception as e:
                 logger.warning("Call to model %s failed: %s. Trying fallback if available.", m, e)
@@ -112,9 +121,9 @@ class NemotronBridge:
         if self._external_agent and hasattr(self._external_agent, "summarize_failure_logs"):
             res = self._external_agent.summarize_failure_logs(logs)
             if hasattr(self._external_agent, "summarize_call_metadata"):
-                self.summarize_call_metadata = getattr(self._external_agent, "summarize_call_metadata")
+                self.summarize_call_metadata = self._external_agent.summarize_call_metadata
             if hasattr(self._external_agent, "last_call_metadata"):
-                self.last_call_metadata = getattr(self._external_agent, "last_call_metadata")
+                self.last_call_metadata = self._external_agent.last_call_metadata
             return res
 
         if not logs:
@@ -128,15 +137,28 @@ class NemotronBridge:
         )
 
         try:
-            return self._call_model(
+            res = self._call_model(
                 model=MODEL_FAST,
                 fallback_model=MODEL_FAST_FALLBACK,
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=350,
                 temperature=0.1,
             ).strip()
+            self.summarize_call_metadata = dict(self.last_call_metadata)
+            return res
         except Exception as e:
             logger.warning("Nemotron log summary failed: %s. Using heuristic summary.", e)
+            meta = {
+                "live_api_succeeded": False,
+                "completion_id": "",
+                "model": "",
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+                "fallback_used": True,
+                "error": str(e),
+            }
+            self.summarize_call_metadata = meta
+            self.last_call_metadata = meta
             return f"Captured {len(logs)} assertion failures in test during background worker race condition."
 
     def generate_naive_quick_fix(
@@ -199,9 +221,9 @@ class NemotronBridge:
                 fast_live_mode=fast_live_mode,
             )
             if hasattr(self._external_agent, "diagnose_call_metadata"):
-                self.diagnose_call_metadata = getattr(self._external_agent, "diagnose_call_metadata")
+                self.diagnose_call_metadata = self._external_agent.diagnose_call_metadata
             if hasattr(self._external_agent, "last_call_metadata"):
-                self.last_call_metadata = getattr(self._external_agent, "last_call_metadata")
+                self.last_call_metadata = self._external_agent.last_call_metadata
             return res
         # Format ledger into clean markdown table
         ledger_rows = [
@@ -277,10 +299,22 @@ class NemotronBridge:
             else:
                 patched_code = response.strip()
 
+            self.diagnose_call_metadata = dict(self.last_call_metadata)
             return title, diagnosis, patched_code
 
         except Exception as e:
             logger.warning("Nemotron 3 Ultra call failed: %s. Using deterministic event synchronization fix.", e)
+            meta = {
+                "live_api_succeeded": False,
+                "completion_id": "",
+                "model": "",
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+                "fallback_used": True,
+                "error": str(e),
+            }
+            self.diagnose_call_metadata = meta
+            self.last_call_metadata = meta
             title = "Coinflip Fix: Deterministic Event Synchronization"
             diagnosis = (
                 "Root cause identified: The test relied on an arbitrary sleep duration to wait for background "

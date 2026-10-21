@@ -8,7 +8,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-import random
 
 from shared_contracts.schemas import PerturbationType
 
@@ -74,6 +73,7 @@ def build_perturbation_context(
     elif perturbation == PerturbationType.SEED_CHANGE:
         env["PYTHONHASHSEED"] = str(run_seed % 4294967295)
         env["COINFLIP_RANDOM_SEED"] = str(run_seed)
+        env["COINFLIP_RUN_ID"] = str(run_id)
 
     elif perturbation == PerturbationType.CLOCK_SHIFT:
         # Shift clock forward by 1 hour (3600 seconds)

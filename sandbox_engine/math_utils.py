@@ -193,8 +193,7 @@ def holm_bonferroni_adjust(p_values: list[float]) -> list[float]:
     max_running = 0.0
     for i in range(m):
         val = (m - i) * p_sorted[i]
-        if val > max_running:
-            max_running = val
+        max_running = max(max_running, val)
         adj_sorted[i] = min(1.0, max_running)
 
     result: list[float] = [0.0] * m

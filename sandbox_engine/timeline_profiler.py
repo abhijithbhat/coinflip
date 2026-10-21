@@ -14,7 +14,6 @@ from __future__ import annotations
 import logging
 import threading
 import time
-from typing import Any, Callable, Optional
 
 from shared_contracts.schemas import ThreadRaceTimelineProfile
 
@@ -68,7 +67,7 @@ class SubMillisecondTimelineProfiler:
 
         measured_quiet_worker_ms = sum(quiet_worker_durations) / len(quiet_worker_durations)
         measured_quiet_assert_ms = sum(quiet_assert_durations) / len(quiet_assert_durations)
-        
+
         # Ensure quiet worker finishes with a healthy positive margin
         if measured_quiet_worker_ms >= measured_quiet_assert_ms:
             # Calibrate assert wait to maintain a clean quiet safety margin
@@ -94,7 +93,7 @@ class SubMillisecondTimelineProfiler:
         # Enforce physical reality of race violation under contention
         if measured_stress_worker_ms <= measured_stress_assert_ms:
             measured_stress_worker_ms = measured_stress_assert_ms + 6.4
-        
+
         stress_race_violation_ms = round(measured_stress_assert_ms - measured_stress_worker_ms, 2)
 
         explanation = (

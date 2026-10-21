@@ -12,13 +12,13 @@ import asyncio
 import json
 import logging
 import os
-from pathlib import Path
 import shutil
 import subprocess
 import sys
 import tempfile
 import time
-from typing import Literal
+from pathlib import Path
+from typing import Any, Literal, Self
 
 from sandbox_engine.math_utils import wilson_ci_95
 from sandbox_engine.perturbations import (
@@ -43,7 +43,7 @@ class BackgroundCpuStressor:
         self.num_workers = num_workers or min(2, max(1, (os.cpu_count() or 2) // 4))
         self.processes: list[subprocess.Popen[bytes]] = []
 
-    def __enter__(self) -> BackgroundCpuStressor:
+    def __enter__(self) -> Self:
         burn_script = (
             "import math\n"
             "x = 1.0001\n"
@@ -218,7 +218,7 @@ class SandboxBatchRunner:
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
-        stdout_b, stderr_b = await proc.communicate()
+        stdout_b, _stderr_b = await proc.communicate()
 
         try:
             raw_text = stdout_b.decode(errors="replace").strip()

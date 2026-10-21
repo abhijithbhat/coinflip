@@ -13,10 +13,11 @@ Validates:
 from __future__ import annotations
 
 import asyncio
-from pathlib import Path
 import shutil
 import sys
 import tempfile
+from pathlib import Path
+from typing import Literal
 
 # Ensure workspace root is in sys.path
 workspace_root = Path(__file__).resolve().parent.parent
@@ -120,7 +121,7 @@ async def run_phase2_verification(mode: Literal["auto", "local_isolated", "nebiu
         orig_normal = await orig_runner.run_batch(PerturbationType.BASELINE, num_runs=50)
         orig_stress = await orig_runner.run_batch(PerturbationType.CPU_HEAVY_LOAD, num_runs=50)
 
-        orig_upper_normal = upper_confidence_bound_95(orig_normal.failures, orig_normal.total_runs)
+        upper_confidence_bound_95(orig_normal.failures, orig_normal.total_runs)
         orig_upper_stress = upper_confidence_bound_95(orig_stress.failures, orig_stress.total_runs)
 
         # 4. Initialize Stage 4 Patch Verifier

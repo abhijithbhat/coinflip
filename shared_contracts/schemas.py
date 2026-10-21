@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import Any, Literal, Optional
+from typing import Any, Literal
+
 from pydantic import BaseModel, Field
 
 
@@ -22,7 +23,7 @@ class CausalInferenceMetrics(BaseModel):
     relative_risk: float = Field(..., description="Relative risk ratio (stress failure rate / baseline failure rate)")
     absolute_rate_delta: float = Field(..., description="Absolute change in failure rate under perturbation")
     is_statistically_significant: bool = Field(..., description="Whether p_value < 0.05 rejecting null hypothesis")
-    holm_adjusted_p_value: Optional[float] = Field(
+    holm_adjusted_p_value: float | None = Field(
         default=None,
         description="Step-down Holm-Bonferroni adjusted p-value across Stage 2 conditions",
     )
@@ -58,7 +59,12 @@ class SPRTExecutionTelemetry(BaseModel):
     """Sequential Probability Ratio Test (SPRT) early-stopping telemetry."""
     enabled: bool = Field(default=True, description="Whether SPRT early stopping was active")
     early_stopped: bool = Field(..., description="Whether the batch terminated before full run budget")
-    decision: Literal["EARLY_REJECT_STRESS", "FULL_SAMPLE_CERTIFIED", "FULL_SAMPLE_REJECTED"] = Field(
+    decision: Literal[
+        "EARLY_REJECT_STRESS",
+        "FULL_SAMPLE_CERTIFIED",
+        "FULL_SAMPLE_REJECTED",
+        "IN_PROGRESS_CONTINUE",
+    ] = Field(
         ...,
         description="SPRT boundary decision",
     )
@@ -97,7 +103,7 @@ class CryptographicAttestation(BaseModel):
         ...,
         description="Signed certificate digest binding repo, patch, ledger root, and verdict",
     )
-    hmac_signature: Optional[str] = Field(
+    hmac_signature: str | None = Field(
         default=None,
         description="HMAC-SHA256 signature generated with server secret",
     )
@@ -119,7 +125,7 @@ class SingleRunResult(BaseModel):
     passed: bool = Field(..., description="Whether the test passed (exit_code == 0)")
     exit_code: int = Field(..., description="Process exit code from test runner")
     duration_ms: float = Field(..., description="Execution wall-clock time in milliseconds")
-    error_snippet: Optional[str] = Field(
+    error_snippet: str | None = Field(
         default=None,
         description="Truncated error message or stack trace if test failed",
     )
@@ -127,7 +133,7 @@ class SingleRunResult(BaseModel):
 
 class BatchExperimentResult(BaseModel):
     """Aggregated statistical outcome of a parallel batch under a specific perturbation condition.
-    
+
     Used in Stage 1 (Baseline measurement), Stage 2 (Stress ledger), and Stage 4 (Certification).
     """
     perturbation: PerturbationType = Field(..., description="Perturbation condition tested")
@@ -150,7 +156,7 @@ class BatchExperimentResult(BaseModel):
         default_factory=list,
         description="Chronological pass/fail indicators (True=pass, False=fail) for UI dot-matrix",
     )
-    causal_metrics: Optional[CausalInferenceMetrics] = Field(
+    causal_metrics: CausalInferenceMetrics | None = Field(
         default=None,
         description="Optional causal inference and statistical significance metrics",
     )
@@ -192,15 +198,15 @@ class CandidateFixEvaluation(BaseModel):
         ...,
         description="Evaluation verdict: CERTIFIED if both normal & stress upper bounds <= target_limit, REJECTED if stress fails, BROKEN if normal fails",
     )
-    rejection_reason: Optional[str] = Field(
+    rejection_reason: str | None = Field(
         default=None,
         description="Detailed explanation if verdict is REJECTED or BROKEN",
     )
-    ast_audit: Optional[ASTGatekeeperReport] = Field(
+    ast_audit: ASTGatekeeperReport | None = Field(
         default=None,
         description="Optional AST semantic gatekeeper anti-cheat audit report",
     )
-    sprt_telemetry: Optional[SPRTExecutionTelemetry] = Field(
+    sprt_telemetry: SPRTExecutionTelemetry | None = Field(
         default=None,
         description="Optional sequential probability ratio test early-stopping telemetry",
     )
@@ -208,11 +214,11 @@ class CandidateFixEvaluation(BaseModel):
         default="nemotron_live",
         description="Source of candidate fix: live Nemotron model, baseline fixture, or offline fallback",
     )
-    model_used: Optional[str] = Field(
+    model_used: str | None = Field(
         default=None,
         description="Specific model ID used to generate this fix attempt",
     )
-    completion_id: Optional[str] = Field(
+    completion_id: str | None = Field(
         default=None,
         description="Nebius Token Factory completion ID for this fix attempt",
     )
@@ -220,7 +226,7 @@ class CandidateFixEvaluation(BaseModel):
 
 class CoinflipCertificateTrace(BaseModel):
     """Complete, end-to-end trace artifact representing Stages 1 through 5 of a Coinflip run.
-    
+
     Powers UI Replay Mode, live dashboard telemetry, and deterministic validation reports.
     """
     trace_id: str = Field(..., description="Unique identifier for this trace session or replay")
@@ -255,19 +261,19 @@ class CoinflipCertificateTrace(BaseModel):
         ...,
         description="Mapping of role to model ID used (e.g. bulk log reading vs deep reasoning)",
     )
-    race_timeline: Optional[ThreadRaceTimelineProfile] = Field(
+    race_timeline: ThreadRaceTimelineProfile | None = Field(
         default=None,
         description="Optional sub-millisecond thread race timeline telemetry",
     )
-    attestation: Optional[CryptographicAttestation] = Field(
+    attestation: CryptographicAttestation | None = Field(
         default=None,
         description="Optional SHA-256 Merkle cryptographic attestation",
     )
-    nemotron_reasoning_trace: Optional[str] = Field(
+    nemotron_reasoning_trace: str | None = Field(
         default=None,
         description="Optional full reasoning trace captured from Nemotron 3 Ultra",
     )
-    llm_call_metadata: Optional[dict[str, Any]] = Field(
+    llm_call_metadata: dict[str, Any] | None = Field(
         default=None,
         description="Metadata from live Nebius Token Factory LLM completions (completion IDs, token usage, live status)",
     )

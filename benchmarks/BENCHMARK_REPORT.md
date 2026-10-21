@@ -1,8 +1,8 @@
 # Coinflip Benchmark Report
 
-**Generated**: 2026-10-20 03:38 UTC  
-**Runs per condition**: 50  
-**Total execution time**: 92s  
+**Generated**: 2026-10-21 08:33 UTC  
+**Runs per condition**: 30  
+**Total execution time**: 46s  
 **Backend**: `local_isolated`  
 **Confidence intervals**: 95% Wilson score
 
@@ -10,11 +10,11 @@
 
 | # | Suite | Category | Trigger | Baseline Fail% | Trigger Fail% | Spike? |
 |---|-------|----------|---------|----------------|---------------|--------|
-| 1 | Hero Worker Race (CPU Thread Race) | Concurrency / Thread Race | `cpu_heavy_load` | 10.0% | 98.0% | YES |
-| 2 | Test Order Pollution (Shared Cache) | Order-Dependent (IDoFT: OD) | `shuffle_order` | 18.0% | 78.0% | YES |
-| 3 | Unpinned Seed Sampling (Hash + Random) | Non-Deterministic (IDoFT: ND) | `seed_change` | 18.0% | 70.0% | YES |
-| 4 | Token Expiry Clock (Mixed Clock Sources) | Time-Dependent (clock-sensitive) | `clock_shift` | 12.0% | 100.0% | YES |
-| 5 | Async Queue Race (Producer-Consumer) | Async Wait / Concurrency | `cpu_heavy_load` | 10.0% | 100.0% | YES |
+| 1 | Hero Worker Race (CPU Thread Race) | Concurrency / Thread Race | `cpu_heavy_load` | 0.0% | 90.0% | YES |
+| 2 | Test Order Pollution (Shared Cache) | Order-Dependent (IDoFT: OD) | `shuffle_order` | 0.0% | 100.0% | YES |
+| 3 | Unpinned Seed Sampling (Hash + Random) | Non-Deterministic (IDoFT: ND) | `seed_change` | 0.0% | 10.0% | YES |
+| 4 | Token Expiry Clock (Mixed Clock Sources) | Time-Dependent (clock-sensitive) | `clock_shift` | 0.0% | 100.0% | YES |
+| 5 | Async Queue Race (Producer-Consumer) | Async Wait / Concurrency | `cpu_heavy_load` | 0.0% | 100.0% | YES |
 
 > **Overall Verdict**: ALL SPIKES CONFIRMED
 
@@ -26,21 +26,21 @@
 
 - **Category**: Concurrency / Thread Race
 - **Trigger perturbation**: `cpu_heavy_load`
-- **Suite time**: 17.5s
+- **Suite time**: 9.1s
 
 | Condition | Runs | Failures | Fail% | 95% CI | Note |
 |-----------|------|----------|-------|--------|------|
-| `baseline` | 50 | 5 | 10.0% | [4.3%, 21.4%] |  |
-| `shuffle_order` | 50 | 5 | 10.0% | [4.3%, 21.4%] |  |
-| `seed_change` | 50 | 5 | 10.0% | [4.3%, 21.4%] |  |
-| `clock_shift` | 50 | 8 | 16.0% | [8.3%, 28.5%] |  |
-| `cpu_half_cores` | 50 | 5 | 10.0% | [4.3%, 21.4%] |  |
-| `cpu_heavy_load` <-- | 50 | 49 | 98.0% | [89.5%, 99.7%] | **TRIGGER** |
+| `baseline` | 30 | 0 | 0.0% | [0.0%, 11.3%] |  |
+| `shuffle_order` | 30 | 0 | 0.0% | [0.0%, 11.3%] |  |
+| `seed_change` | 30 | 0 | 0.0% | [0.0%, 11.3%] |  |
+| `clock_shift` | 30 | 0 | 0.0% | [0.0%, 11.3%] |  |
+| `cpu_half_cores` | 30 | 0 | 0.0% | [0.0%, 11.3%] |  |
+| `cpu_heavy_load` <-- | 30 | 27 | 90.0% | [74.4%, 96.5%] | **TRIGGER** |
 
 **Trigger dot-matrix** (`cpu_heavy_load`):
 ```
-XXXXXXXXX.XXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXX
+XXXXXX.XXXXXXXXXXXXXXXXXX
+X..XX
 ```
 `. = pass, X = fail`
 
@@ -48,21 +48,21 @@ XXXXXXXXXXXXXXXXXXXXXXXXX
 
 - **Category**: Order-Dependent (IDoFT: OD)
 - **Trigger perturbation**: `shuffle_order`
-- **Suite time**: 17.8s
+- **Suite time**: 9.5s
 
 | Condition | Runs | Failures | Fail% | 95% CI | Note |
 |-----------|------|----------|-------|--------|------|
-| `baseline` | 50 | 9 | 18.0% | [9.8%, 30.8%] |  |
-| `shuffle_order` <-- | 50 | 39 | 78.0% | [64.8%, 87.2%] | **TRIGGER** |
-| `seed_change` | 50 | 5 | 10.0% | [4.3%, 21.4%] |  |
-| `clock_shift` | 50 | 9 | 18.0% | [9.8%, 30.8%] |  |
-| `cpu_half_cores` | 50 | 5 | 10.0% | [4.3%, 21.4%] |  |
-| `cpu_heavy_load` | 50 | 3 | 6.0% | [2.1%, 16.2%] |  |
+| `baseline` | 30 | 0 | 0.0% | [0.0%, 11.3%] |  |
+| `shuffle_order` <-- | 30 | 30 | 100.0% | [88.6%, 100.0%] | **TRIGGER** |
+| `seed_change` | 30 | 0 | 0.0% | [0.0%, 11.3%] |  |
+| `clock_shift` | 30 | 0 | 0.0% | [0.0%, 11.3%] |  |
+| `cpu_half_cores` | 30 | 0 | 0.0% | [0.0%, 11.3%] |  |
+| `cpu_heavy_load` | 30 | 0 | 0.0% | [0.0%, 11.3%] |  |
 
 **Trigger dot-matrix** (`shuffle_order`):
 ```
-.X.XXX.XXX.XXXXXX.X.X.XX.
-XXXXXXXX.XXXXXXXXXXX.X.XX
+XXXXXXXXXXXXXXXXXXXXXXXXX
+XXXXX
 ```
 `. = pass, X = fail`
 
@@ -70,21 +70,21 @@ XXXXXXXX.XXXXXXXXXXX.X.XX
 
 - **Category**: Non-Deterministic (IDoFT: ND)
 - **Trigger perturbation**: `seed_change`
-- **Suite time**: 17.0s
+- **Suite time**: 8.6s
 
 | Condition | Runs | Failures | Fail% | 95% CI | Note |
 |-----------|------|----------|-------|--------|------|
-| `baseline` | 50 | 9 | 18.0% | [9.8%, 30.8%] |  |
-| `shuffle_order` | 50 | 5 | 10.0% | [4.3%, 21.4%] |  |
-| `seed_change` <-- | 50 | 35 | 70.0% | [56.2%, 80.9%] | **TRIGGER** |
-| `clock_shift` | 50 | 7 | 14.0% | [7.0%, 26.2%] |  |
-| `cpu_half_cores` | 50 | 4 | 8.0% | [3.1%, 18.8%] |  |
-| `cpu_heavy_load` | 50 | 7 | 14.0% | [7.0%, 26.2%] |  |
+| `baseline` | 30 | 0 | 0.0% | [0.0%, 11.3%] |  |
+| `shuffle_order` | 30 | 3 | 10.0% | [3.5%, 25.6%] |  |
+| `seed_change` <-- | 30 | 3 | 10.0% | [3.5%, 25.6%] | **TRIGGER** |
+| `clock_shift` | 30 | 0 | 0.0% | [0.0%, 11.3%] |  |
+| `cpu_half_cores` | 30 | 0 | 0.0% | [0.0%, 11.3%] |  |
+| `cpu_heavy_load` | 30 | 0 | 0.0% | [0.0%, 11.3%] |  |
 
 **Trigger dot-matrix** (`seed_change`):
 ```
-X.XX.XX.XXX.XX.XX.XXX.XX.
-XX.XXX.XX.XX.XXX.XX.XX.XX
+.............X...........
+...XX
 ```
 `. = pass, X = fail`
 
@@ -92,21 +92,21 @@ XX.XXX.XX.XX.XXX.XX.XX.XX
 
 - **Category**: Time-Dependent (clock-sensitive)
 - **Trigger perturbation**: `clock_shift`
-- **Suite time**: 21.0s
+- **Suite time**: 9.6s
 
 | Condition | Runs | Failures | Fail% | 95% CI | Note |
 |-----------|------|----------|-------|--------|------|
-| `baseline` | 50 | 6 | 12.0% | [5.6%, 23.8%] |  |
-| `shuffle_order` | 50 | 5 | 10.0% | [4.3%, 21.4%] |  |
-| `seed_change` | 50 | 5 | 10.0% | [4.3%, 21.4%] |  |
-| `clock_shift` <-- | 50 | 50 | 100.0% | [92.9%, 100.0%] | **TRIGGER** |
-| `cpu_half_cores` | 50 | 3 | 6.0% | [2.1%, 16.2%] |  |
-| `cpu_heavy_load` | 50 | 5 | 10.0% | [4.3%, 21.4%] |  |
+| `baseline` | 30 | 0 | 0.0% | [0.0%, 11.3%] |  |
+| `shuffle_order` | 30 | 0 | 0.0% | [0.0%, 11.3%] |  |
+| `seed_change` | 30 | 0 | 0.0% | [0.0%, 11.3%] |  |
+| `clock_shift` <-- | 30 | 30 | 100.0% | [88.6%, 100.0%] | **TRIGGER** |
+| `cpu_half_cores` | 30 | 0 | 0.0% | [0.0%, 11.3%] |  |
+| `cpu_heavy_load` | 30 | 0 | 0.0% | [0.0%, 11.3%] |  |
 
 **Trigger dot-matrix** (`clock_shift`):
 ```
 XXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXX
+XXXXX
 ```
 `. = pass, X = fail`
 
@@ -114,21 +114,21 @@ XXXXXXXXXXXXXXXXXXXXXXXXX
 
 - **Category**: Async Wait / Concurrency
 - **Trigger perturbation**: `cpu_heavy_load`
-- **Suite time**: 18.5s
+- **Suite time**: 9.5s
 
 | Condition | Runs | Failures | Fail% | 95% CI | Note |
 |-----------|------|----------|-------|--------|------|
-| `baseline` | 50 | 5 | 10.0% | [4.3%, 21.4%] |  |
-| `shuffle_order` | 50 | 5 | 10.0% | [4.3%, 21.4%] |  |
-| `seed_change` | 50 | 5 | 10.0% | [4.3%, 21.4%] |  |
-| `clock_shift` | 50 | 2 | 4.0% | [1.1%, 13.5%] |  |
-| `cpu_half_cores` | 50 | 3 | 6.0% | [2.1%, 16.2%] |  |
-| `cpu_heavy_load` <-- | 50 | 50 | 100.0% | [92.9%, 100.0%] | **TRIGGER** |
+| `baseline` | 30 | 0 | 0.0% | [0.0%, 11.3%] |  |
+| `shuffle_order` | 30 | 0 | 0.0% | [0.0%, 11.3%] |  |
+| `seed_change` | 30 | 0 | 0.0% | [0.0%, 11.3%] |  |
+| `clock_shift` | 30 | 0 | 0.0% | [0.0%, 11.3%] |  |
+| `cpu_half_cores` | 30 | 0 | 0.0% | [0.0%, 11.3%] |  |
+| `cpu_heavy_load` <-- | 30 | 30 | 100.0% | [88.6%, 100.0%] | **TRIGGER** |
 
 **Trigger dot-matrix** (`cpu_heavy_load`):
 ```
 XXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXX
+XXXXX
 ```
 `. = pass, X = fail`
 

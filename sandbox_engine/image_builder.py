@@ -8,14 +8,13 @@ from __future__ import annotations
 
 import json
 import logging
-import os
-from pathlib import Path
 import re
 import shutil
 import subprocess
 import tempfile
-from typing import Literal
 import uuid
+from pathlib import Path
+from typing import Literal
 
 logger = logging.getLogger("sandbox_engine.image_builder")
 
@@ -34,9 +33,7 @@ IGNORED_PATTERNS = {
 def _ignore_patterns(path: str, names: list[str]) -> set[str]:
     ignored = set()
     for name in names:
-        if name in {".git", ".venv", "venv", "__pycache__", ".pytest_cache", ".DS_Store"}:
-            ignored.add(name)
-        elif name.endswith(".pyc") or name.endswith(".pyo"):
+        if name in {".git", ".venv", "venv", "__pycache__", ".pytest_cache", ".DS_Store"} or name.endswith((".pyc", ".pyo")):
             ignored.add(name)
     return ignored
 
@@ -230,7 +227,6 @@ class SandboxImageBuilder:
             return False
 
         orig_content = target_file.read_text(encoding="utf-8")
-        orig_lines = orig_content.splitlines(keepends=True)
 
         # Extract removed lines and added lines from the first hunk
         removals: list[str] = []

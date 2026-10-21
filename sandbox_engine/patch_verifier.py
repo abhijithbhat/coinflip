@@ -13,13 +13,15 @@ Implements the statistical certification gate from Page 9 of the Concept Brief:
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 from typing import Any, Literal
 
 from sandbox_engine.ast_gatekeeper import ASTSemanticGatekeeper
 from sandbox_engine.batch_runner import SandboxBatchRunner
 from sandbox_engine.image_builder import SandboxImageBuilder
-from sandbox_engine.math_utils import upper_confidence_bound_95, wald_sprt_check, wilson_ci_95
+from sandbox_engine.math_utils import (
+    wald_sprt_check,
+    wilson_ci_95,
+)
 from shared_contracts.schemas import (
     BatchExperimentResult,
     CandidateFixEvaluation,
@@ -72,6 +74,9 @@ class Stage4PatchVerifier:
         enable_sprt: bool = True,
         probe_chunk_size: int = 50,
         fast_live_mode: bool = False,
+        fix_source: Literal["nemotron_live", "naive_baseline_fixture", "offline_fallback_fixture"] = "nemotron_live",
+        model_used: str | None = None,
+        completion_id: str | None = None,
     ) -> CandidateFixEvaluation:
         """Evaluates a candidate fix across both normal and stress conditions with AST & SPRT.
 
@@ -138,6 +143,9 @@ class Stage4PatchVerifier:
                         rejection_reason=f"Pre-flight AST Gatekeeper rejected patch: {ast_report.summary}",
                         ast_audit=ast_report,
                         sprt_telemetry=None,
+                        fix_source=fix_source,
+                        model_used=model_used,
+                        completion_id=completion_id,
                     )
             except Exception as e:
                 logger.warning("AST Gatekeeper check encountered exception (skipping pre-flight block): %s", e)
@@ -212,7 +220,7 @@ class Stage4PatchVerifier:
                     sprt_telemetry = wald_sprt_check(
                         failures=stress_result.failures,
                         runs_done=stress_result.total_runs,
-                        target_runs=cert_runs,
+                        target_runs=eval_runs,
                         target_limit=target_limit,
                     )
 
@@ -380,6 +388,9 @@ class Stage4PatchVerifier:
                 rejection_reason=rejection_reason,
                 ast_audit=ast_report,
                 sprt_telemetry=sprt_telemetry,
+                fix_source=fix_source,
+                model_used=model_used,
+                completion_id=completion_id,
             )
 
         finally:

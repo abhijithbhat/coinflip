@@ -20,7 +20,6 @@ from __future__ import annotations
 
 import ast
 import re
-from typing import Any, Optional
 
 from shared_contracts.schemas import ASTGatekeeperReport
 
@@ -46,8 +45,8 @@ class ASTSemanticGatekeeper:
         patch_ast = self._parse_source(resolved_patched_code, label="patched")
 
         # 1. Assertion analysis (counts, tautologies)
-        orig_total, orig_meaningful, orig_taut, orig_taut_reasons = self._analyze_assertions(orig_ast)
-        patch_total, patch_meaningful, patch_taut, patch_taut_reasons = self._analyze_assertions(patch_ast)
+        orig_total, orig_meaningful, _orig_taut, orig_taut_reasons = self._analyze_assertions(orig_ast)
+        patch_total, patch_meaningful, _patch_taut, patch_taut_reasons = self._analyze_assertions(patch_ast)
 
         # 2. Dead conditional assertions (e.g. if False: assert ...)
         patch_dead_conditionals = self._detect_dead_conditional_assertions(patch_ast)
@@ -230,7 +229,7 @@ class ASTSemanticGatekeeper:
         except Exception:
             return patched_code
 
-    def _apply_diff_replacement_heuristic(self, original: str, diff_text: str) -> Optional[str]:
+    def _apply_diff_replacement_heuristic(self, original: str, diff_text: str) -> str | None:
         """Heuristic search-and-replace for unified diffs when hunk headers are absent or shifted."""
         orig_lines = original.splitlines(keepends=True)
         diff_lines = diff_text.splitlines()
@@ -248,13 +247,13 @@ class ASTSemanticGatekeeper:
             return None
 
         # Try to find rem_lines block in original
-        orig_stripped = [l.rstrip() for l in orig_lines]
+        orig_stripped = [line.rstrip() for line in orig_lines]
         for i in range(len(orig_stripped) - len(rem_lines) + 1):
             if orig_stripped[i : i + len(rem_lines)] == rem_lines:
                 # Replace matching block with add_lines
                 prefix = orig_lines[:i]
                 suffix = orig_lines[i + len(rem_lines) :]
-                new_block = [f"{l}\n" for l in add_lines]
+                new_block = [f"{line}\n" for line in add_lines]
                 candidate = "".join(prefix + new_block + suffix)
                 try:
                     self._parse_source(candidate)
@@ -264,7 +263,7 @@ class ASTSemanticGatekeeper:
 
         return None
 
-    def _apply_diff_text(self, original: str, diff_text: str) -> Optional[str]:
+    def _apply_diff_text(self, original: str, diff_text: str) -> str | None:
         """Simple in-memory unified diff applier for single test snippets."""
         orig_lines = original.splitlines(keepends=True)
         hunk_pattern = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@")
@@ -380,38 +379,37 @@ class ASTSemanticGatekeeper:
                     is_dead = True
                     desc = node.test.id
                 # Constant comparison evaluating to False: if 1 == 2:, if 0 == 1:
-                elif isinstance(node.test, ast.Compare):
-                    if (
-                        isinstance(node.test.left, ast.Constant)
-                        and len(node.test.comparators) == 1
-                        and isinstance(node.test.comparators[0], ast.Constant)
-                    ):
-                        l_val = node.test.left.value
-                        r_val = node.test.comparators[0].value
-                        op = node.test.ops[0]
-                        res = None
-                        try:
-                            if isinstance(op, ast.Eq):
-                                res = l_val == r_val
-                            elif isinstance(op, ast.NotEq):
-                                res = l_val != r_val
-                            elif isinstance(op, ast.Lt):
-                                res = l_val < r_val
-                            elif isinstance(op, ast.LtE):
-                                res = l_val <= r_val
-                            elif isinstance(op, ast.Gt):
-                                res = l_val > r_val
-                            elif isinstance(op, ast.GtE):
-                                res = l_val >= r_val
-                            elif isinstance(op, ast.Is):
-                                res = l_val is r_val
-                            elif isinstance(op, ast.IsNot):
-                                res = l_val is not r_val
-                        except Exception:
-                            pass
-                        if res is False:
-                            is_dead = True
-                            desc = f"{l_val} {type(op).__name__} {r_val}"
+                elif isinstance(node.test, ast.Compare) and (
+                    isinstance(node.test.left, ast.Constant)
+                    and len(node.test.comparators) == 1
+                    and isinstance(node.test.comparators[0], ast.Constant)
+                ):
+                    l_val = node.test.left.value
+                    r_val = node.test.comparators[0].value
+                    op = node.test.ops[0]
+                    res = None
+                    try:
+                        if isinstance(op, ast.Eq):
+                            res = l_val == r_val
+                        elif isinstance(op, ast.NotEq):
+                            res = l_val != r_val
+                        elif isinstance(op, ast.Lt):
+                            res = l_val < r_val
+                        elif isinstance(op, ast.LtE):
+                            res = l_val <= r_val
+                        elif isinstance(op, ast.Gt):
+                            res = l_val > r_val
+                        elif isinstance(op, ast.GtE):
+                            res = l_val >= r_val
+                        elif isinstance(op, ast.Is):
+                            res = l_val is r_val
+                        elif isinstance(op, ast.IsNot):
+                            res = l_val is not r_val
+                    except Exception:
+                        pass
+                    if res is False:
+                        is_dead = True
+                        desc = f"{l_val} {type(op).__name__} {r_val}"
 
                 if is_dead:
                     has_assert = any(
@@ -481,7 +479,7 @@ class ASTSemanticGatekeeper:
 
             # 1. try/except block
             if isinstance(node, ast.Try):
-                has_assert = any(
+                any(
                     isinstance(child, ast.Assert)
                     or (
                         isinstance(child, ast.Call)
@@ -492,17 +490,11 @@ class ASTSemanticGatekeeper:
                 )
                 for handler in node.handlers:
                     is_swallow = False
-                    if handler.type is None:
-                        is_swallow = True
-                    elif isinstance(handler.type, ast.Name) and handler.type.id in swallow_targets:
-                        is_swallow = True
-                    elif isinstance(handler.type, ast.Attribute) and handler.type.attr in swallow_targets:
+                    if handler.type is None or isinstance(handler.type, ast.Name) and handler.type.id in swallow_targets or isinstance(handler.type, ast.Attribute) and handler.type.attr in swallow_targets:
                         is_swallow = True
                     elif isinstance(handler.type, ast.Tuple):
                         for elt in handler.type.elts:
-                            if isinstance(elt, ast.Name) and elt.id in swallow_targets:
-                                is_swallow = True
-                            elif isinstance(elt, ast.Attribute) and elt.attr in swallow_targets:
+                            if isinstance(elt, ast.Name) and elt.id in swallow_targets or isinstance(elt, ast.Attribute) and elt.attr in swallow_targets:
                                 is_swallow = True
 
                     if is_swallow:
@@ -667,7 +659,7 @@ class ASTSemanticGatekeeper:
 
         return total, meaningful, tautological, taut_reasons
 
-    def _get_decorator_name(self, node: ast.AST) -> Optional[str]:
+    def _get_decorator_name(self, node: ast.AST) -> str | None:
         """Extracts identifier string from decorator AST node."""
         if isinstance(node, ast.Name):
             return node.id
@@ -678,7 +670,7 @@ class ASTSemanticGatekeeper:
             return self._get_decorator_name(node.func)
         return None
 
-    def _get_call_name(self, node: ast.Call) -> Optional[str]:
+    def _get_call_name(self, node: ast.Call) -> str | None:
         """Extracts dotted identifier string from Call node."""
         if isinstance(node.func, ast.Name):
             return node.func.id
@@ -732,11 +724,10 @@ class ASTSemanticGatekeeper:
                 if isinstance(node.func, ast.Attribute):
                     attr = node.func.attr
                     if attr in sync_method_names:
+                        sync_primitives.append(attr)
                         rec_name = self._get_decorator_name(node.func.value)
                         if rec_name:
                             sync_primitives.append(f"{rec_name}.{attr}")
-                        else:
-                            sync_primitives.append(attr)
 
                 # Check instantiation: e.g. threading.Event(), Event(), random.Random()
                 if call_name:

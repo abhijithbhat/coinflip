@@ -18,10 +18,9 @@ Validates the Principal-Engineer and Staff-Scientist extensions:
 
 from __future__ import annotations
 
-import json
-from pathlib import Path
 import subprocess
 import sys
+from pathlib import Path
 
 # Ensure workspace root is in sys.path
 workspace_root = Path(__file__).resolve().parent.parent
@@ -29,11 +28,11 @@ if str(workspace_root) not in sys.path:
     sys.path.insert(0, str(workspace_root))
 
 from sandbox_engine.ast_gatekeeper import ASTSemanticGatekeeper
-from sandbox_engine.attestation import CertificateAttestor, attest_trace, verify_trace_attestation
+from sandbox_engine.attestation import (
+    CertificateAttestor,
+)
 from sandbox_engine.timeline_profiler import SubMillisecondTimelineProfiler
 from shared_contracts.generate_reference_trace import create_reference_trace
-from shared_contracts.schemas import CoinflipCertificateTrace
-
 
 ORIGINAL_CODE = """
 import time

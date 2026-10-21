@@ -20,16 +20,15 @@ from __future__ import annotations
 import argparse
 import asyncio
 import importlib.util
-import math
 import os
 import shutil
 import subprocess
 import sys
 import tempfile
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Self
 
 # ---------------------------------------------------------------------------
 # Direct module imports — bypass sandbox_engine/__init__.py (avoids openai)
@@ -140,7 +139,7 @@ class BackgroundCpuStressor:
         self.num_workers = num_workers or 2
         self.processes: list[subprocess.Popen[bytes]] = []
 
-    def __enter__(self) -> BackgroundCpuStressor:
+    def __enter__(self) -> Self:
         burn_script = (
             "x = 1.0001\n"
             "while True:\n"
@@ -173,7 +172,7 @@ class BackgroundCpuStressor:
 # ---------------------------------------------------------------------------
 class RunResult:
     """Single test run outcome."""
-    __slots__ = ("run_id", "passed", "exit_code", "duration_ms", "error_snippet")
+    __slots__ = ("duration_ms", "error_snippet", "exit_code", "passed", "run_id")
 
     def __init__(self, run_id: int, passed: bool, exit_code: int,
                  duration_ms: float, error_snippet: str | None = None) -> None:
@@ -275,10 +274,10 @@ async def _run_single(
             error_snippet = None
             if not passed:
                 output = (stdout_b.decode(errors="replace") + "\n" + stderr_b.decode(errors="replace")).strip()
-                lines = [l for l in output.splitlines() if l.strip()]
+                lines = [line for line in output.splitlines() if line.strip()]
                 error_snippet = "\n".join(lines[-10:]) if lines else "Non-zero exit"
             return RunResult(run_id, passed, proc.returncode or 0, duration_ms, error_snippet)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             try:
                 proc.kill()
             except Exception:
@@ -317,7 +316,7 @@ async def run_batch(
                     "        _BURNER_STOP_EVENT = None\n"
                 )
 
-        ctx = build_perturbation_context(perturbation, run_id=0)
+        build_perturbation_context(perturbation, run_id=0)
         max_concurrency = 4 if perturbation == PerturbationType.CPU_HEAVY_LOAD else min(6, os.cpu_count() or 4)
         semaphore = asyncio.Semaphore(max_concurrency)
 
@@ -401,7 +400,7 @@ def generate_report(
     total_elapsed: float,
 ) -> str:
     """Generate BENCHMARK_REPORT.md content."""
-    timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    timestamp = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
     lines: list[str] = []
 
     lines.append("# Coinflip Benchmark Report")
@@ -409,8 +408,8 @@ def generate_report(
     lines.append(f"**Generated**: {timestamp}  ")
     lines.append(f"**Runs per condition**: {num_runs}  ")
     lines.append(f"**Total execution time**: {total_elapsed:.0f}s  ")
-    lines.append(f"**Backend**: `local_isolated`  ")
-    lines.append(f"**Confidence intervals**: 95% Wilson score")
+    lines.append("**Backend**: `local_isolated`  ")
+    lines.append("**Confidence intervals**: 95% Wilson score")
     lines.append("")
 
     # --- Summary table ---
@@ -479,11 +478,11 @@ def generate_report(
         if trigger_r and trigger_r.run_dots:
             dot_str = "".join("." if d else "X" for d in trigger_r.run_dots)
             lines.append(f"**Trigger dot-matrix** (`{sr.meta['trigger'].value}`):")
-            lines.append(f"```")
+            lines.append("```")
             for row_start in range(0, len(dot_str), 25):
                 lines.append(dot_str[row_start:row_start+25])
-            lines.append(f"```")
-            lines.append(f"`. = pass, X = fail`")
+            lines.append("```")
+            lines.append("`. = pass, X = fail`")
             lines.append("")
 
     # --- Patch comparison section ---
@@ -602,7 +601,7 @@ async def main() -> None:
     report_path.write_text(report_md, encoding="utf-8")
 
     print(f"\n{'='*70}")
-    print(f"  BENCHMARK RUN COMPLETE")
+    print("  BENCHMARK RUN COMPLETE")
     print(f"{'='*70}")
     print(f"  Total time: {total_elapsed:.0f}s")
     print(f"  Report: {report_path}")

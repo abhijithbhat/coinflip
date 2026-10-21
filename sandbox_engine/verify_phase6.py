@@ -14,10 +14,10 @@ from __future__ import annotations
 
 import asyncio
 import os
-from pathlib import Path
 import subprocess
 import sys
 import time
+from pathlib import Path
 
 repo_root = Path(__file__).resolve().parent.parent
 if str(repo_root) not in sys.path:
@@ -86,7 +86,7 @@ async def main() -> None:
     project_id = os.getenv("NEBIUS_PROJECT_ID")
     check(bool(api_key and project_id), f"Nebius API credentials loaded (Project: {project_id})")
 
-    from contree_sdk import Contree, ContreeSync
+    from contree_sdk import ContreeSync
 
     client_sync = ContreeSync()
     token_info = client_sync.get_token_info()

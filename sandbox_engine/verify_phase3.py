@@ -14,10 +14,10 @@ Validates the full 5-stage Coinflip pipeline:
 from __future__ import annotations
 
 import asyncio
-from pathlib import Path
 import shutil
 import sys
 import tempfile
+from pathlib import Path
 
 # Ensure workspace root is in sys.path
 workspace_root = Path(__file__).resolve().parent.parent
@@ -82,7 +82,7 @@ async def run_phase3_verification() -> None:
         print("=" * 95 + "\n")
 
         # 3. Execute full pipeline
-        trace = await orchestrator.run(
+        await orchestrator.run(
             stage1_runs=30,
             stage2_runs=25,
             stage4_cert_runs=35,
