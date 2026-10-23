@@ -21,6 +21,23 @@ export function fisherExact(base: Pick<Condition, "failures" | "total_runs">, ro
   return Math.min(1, p);
 }
 
+/** Step-down Holm-Bonferroni adjustment for multiple hypothesis testing. */
+export function holmBonferroniAdjust(pValues: number[]): number[] {
+  const m = pValues.length;
+  if (m === 0) return [];
+  const indexed = pValues.map((p, i) => ({ p, i })).sort((a, b) => a.p - b.p);
+  const adjusted = new Array<number>(m);
+  let runningMax = 0;
+  for (let rank = 0; rank < m; rank++) {
+    const rawP = indexed[rank]!.p;
+    const factor = m - rank;
+    const cand = Math.min(1.0, rawP * factor);
+    runningMax = Math.max(runningMax, cand);
+    adjusted[indexed[rank]!.i] = runningMax;
+  }
+  return adjusted;
+}
+
 export function relativeRisk(base: Pick<Condition, "failures" | "total_runs">, row: Pick<Condition, "failures" | "total_runs">): number | null {
   if (!base.total_runs || !row.total_runs) return null;
   if (!base.failures) return row.failures ? Infinity : null;

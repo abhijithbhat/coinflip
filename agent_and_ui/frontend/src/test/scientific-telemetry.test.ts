@@ -1,7 +1,7 @@
 import { webcrypto } from "node:crypto";
 import { describe, expect, it, vi, afterEach, beforeEach } from "vitest";
 import { FALLBACK_TRACE, fallbackForCase, fetchCaseTrace, BENCHMARK_CASES } from "@/lib/trace";
-import { canonicalJSON, fisherExact, relativeRisk, sealTrace, sha256, verifyTrace, PROFILER_EXAMPLE, SPRT_EXAMPLE } from "@/lib/telemetry";
+import { canonicalJSON, fisherExact, relativeRisk, holmBonferroniAdjust, sealTrace, sha256, verifyTrace, PROFILER_EXAMPLE, SPRT_EXAMPLE } from "@/lib/telemetry";
 
 afterEach(() => vi.unstubAllGlobals());
 beforeEach(() => vi.stubGlobal("crypto", webcrypto));
@@ -84,5 +84,93 @@ describe("SHA-256 client integrity", () => {
     if (!fix) throw new Error("Missing fix");
     fix.git_diff_patch += "\n# changed";
     expect(await verifyTrace(patchChanged, seal)).toBe(false);
+  });
+});
+
+describe("Holm-Bonferroni adjustment", () => {
+  it("enforces step-down monotonicity and correct bounds", () => {
+    const raw = [0.005, 0.04, 0.02, 0.10];
+    const adj = holmBonferroniAdjust(raw);
+    expect(adj.length).toBe(4);
+    // sorted: 0.005 (x4 = 0.02), 0.02 (x3 = 0.06), 0.04 (x2 = 0.08), 0.10 (x1 = 0.10)
+    expect(adj[0]).toBeCloseTo(0.02);
+    expect(adj[2]).toBeCloseTo(0.06);
+    expect(adj[1]).toBeCloseTo(0.08);
+    expect(adj[3]).toBeCloseTo(0.10);
+    expect(holmBonferroniAdjust([])).toEqual([]);
+  });
+});
+
+describe("Phase 7 scientific UI telemetry badges and labels", () => {
+  it("renders provenance badges correctly", async () => {
+    const React = (await import("react")).default;
+    const { FixSourceBadge } = await import("@/components/scientific-telemetry");
+    const { render, screen } = await import("@testing-library/react");
+    const { unmount } = render(
+      React.createElement(
+        "div",
+        null,
+        React.createElement(FixSourceBadge, { source: "nemotron_live" }),
+        React.createElement(FixSourceBadge, { source: "naive_baseline_fixture" }),
+        React.createElement(FixSourceBadge, { source: "offline_fallback_fixture" })
+      )
+    );
+    expect(screen.getByText(/LIVE NEMOTRON PATCH/i)).toBeInTheDocument();
+    expect(screen.getByText(/REFERENCE NAIVE AGENT FIXTURE/i)).toBeInTheDocument();
+    expect(screen.getByText(/OFFLINE FALLBACK PATCH \(API TIMEOUT\)/i)).toBeInTheDocument();
+    unmount();
+  });
+
+  it("renders AST Static Anti-Cheat Gatekeeper and IN_PROGRESS_CONTINUE in SPRT", async () => {
+    const React = (await import("react")).default;
+    const { GatekeeperAudit } = await import("@/components/scientific-telemetry");
+    const { render, screen } = await import("@testing-library/react");
+    const inProgressAttempt = {
+      ...FALLBACK_TRACE.fix_attempts[0]!,
+      sprt_telemetry: {
+        enabled: true,
+        status: "IN_PROGRESS_CONTINUE",
+        decision: "IN_PROGRESS_CONTINUE",
+        llr: 0.84,
+        stopped_at: 25,
+      },
+    };
+    const { unmount } = render(React.createElement(GatekeeperAudit, { attempt: inProgressAttempt, trace: FALLBACK_TRACE }));
+    expect(screen.getAllByText(/AST Static Anti-Cheat Gatekeeper/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/IN_PROGRESS_CONTINUE/i).length).toBeGreaterThan(0);
+    unmount();
+  });
+
+  it("renders SHA-256 Merkle & HMAC Attested and displays ATTESTATION FAILED — TRACE TAMPERED when tampered", async () => {
+    const React = (await import("react")).default;
+    const { AttestationBlock } = await import("@/components/scientific-telemetry");
+    const { render, screen, fireEvent, waitFor } = await import("@testing-library/react");
+    const seal = await sealTrace(FALLBACK_TRACE);
+
+    // Mock fetch returning verified: false (tampering detected)
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ verified: false, reason: "Tampering detected: failures count mismatch" }),
+    }));
+
+    const { unmount } = render(React.createElement(AttestationBlock, { trace: FALLBACK_TRACE, seal }));
+    expect(screen.getByText(/SHA-256 Merkle & HMAC Attested/i)).toBeInTheDocument();
+
+    const verifyBtn = screen.getByRole("button", { name: /Verify Cryptographic Signature/i });
+    fireEvent.click(verifyBtn);
+
+    await waitFor(() => {
+      expect(screen.getByText(/ATTESTATION FAILED — TRACE TAMPERED/i)).toBeInTheDocument();
+    });
+    unmount();
+  });
+
+  it("displays holm_adjusted_p_value in CausalLedger", async () => {
+    const React = (await import("react")).default;
+    const { CausalLedger } = await import("@/components/scientific-telemetry");
+    const { render, screen } = await import("@testing-library/react");
+    const { unmount } = render(React.createElement(CausalLedger, { trace: FALLBACK_TRACE }));
+    expect(screen.getAllByText(/holm_adjusted_p_value/i).length).toBeGreaterThan(0);
+    unmount();
   });
 });

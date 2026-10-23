@@ -26,6 +26,7 @@ import pytest
 
 # Module under test
 from agent_and_ui.nemotron_agent import (
+    DiagnosisResponse,
     NemotronAgent,
     NemotronBridge,
     _build_git_diff,
@@ -626,4 +627,204 @@ class TestDiagnosePhase5Kwargs:
             )
         assert title == "Fix"
         assert "race" in diag
+
+
+# -------------------------------------------------------------------------------
+# K. Dynamic models_used, fix_source provenance, and SHA-256 disk cache
+# -------------------------------------------------------------------------------
+
+
+class TestDynamicModelsAndInvokedModels:
+    def test_init_invoked_models_empty(self):
+        agent = NemotronAgent(api_key="dummy")
+        assert agent.invoked_models == []
+        assert agent.models_used == {}
+
+    def test_offline_fallback_does_not_add_to_invoked_models(self):
+        agent = NemotronAgent(api_key="dummy")
+        agent._call_with_fallback = MagicMock(side_effect=RuntimeError("offline"))
+        agent.summarize_failure_logs(["trace 1"])
+        agent.diagnose_and_propose_fix(
+            test_code=FLAKY_CODE,
+            stage1_baseline=_make_batch(),
+            stage2_ledger=[_make_batch("cpu_heavy_load", 28, 30)],
+        )
+        assert agent.invoked_models == []
+        assert agent.models_used == {}
+
+    def test_successful_api_call_tracks_invoked_models(self):
+        agent = NemotronAgent(api_key="dummy", use_cache=False)
+        fake_response = MagicMock()
+        fake_response.choices = [MagicMock(message=MagicMock(content="Summary of failures", reasoning_content=None))]
+        fake_response.model = "nvidia/Nemotron-3_5-Lightning"
+        fake_response.id = "mock-id-123"
+        fake_response.usage = MagicMock(prompt_tokens=10, completion_tokens=5)
+
+        with patch.object(agent.client.chat.completions, "create", return_value=fake_response):
+            summary = agent.summarize_failure_logs(["AssertionError: race"])
+
+        assert "Summary of failures" in summary
+        assert "nvidia/Nemotron-3_5-Lightning" in agent.invoked_models
+        assert agent.models_used.get("bulk_log_reading") == "nvidia/Nemotron-3_5-Lightning"
+
+
+class TestFixSourceAndDiagnosisResponse:
+    def test_naive_quick_fix_returns_diagnosis_response(self):
+        agent = NemotronAgent(api_key="dummy")
+        res = agent.generate_naive_quick_fix(FLAKY_CODE_9MS, "error")
+
+        assert isinstance(res, tuple)
+        assert isinstance(res, DiagnosisResponse)
+        assert len(res) == 3
+        title, diag, patched = res
+        assert "0.050" in patched
+        assert "50ms" in title
+        assert res.fix_source == "naive_baseline_fixture"
+        assert res.model_used is None
+        assert res.completion_id is None
+        assert res["fix_source"] == "naive_baseline_fixture"
+        assert res.get("fix_source") == "naive_baseline_fixture"
+
+    def test_diagnose_live_success_provenance(self):
+        agent = NemotronAgent(api_key="dummy")
+        raw_response = (
+            '```json\n{"fix_title":"Live Fix","root_cause_diagnosis":"race condition",'
+            '"patched_code":"def test(): pass","git_diff_patch":""}\n```'
+        )
+        fake_obj = MagicMock()
+        fake_obj.model = "nvidia/Nemotron-3-Ultra-550b-a55b"
+        fake_obj.id = "live-completion-999"
+        fake_obj.usage = MagicMock(prompt_tokens=100, completion_tokens=50)
+
+        with patch.object(
+            agent, "_call_with_fallback",
+            return_value=(raw_response, "nvidia/Nemotron-3-Ultra-550b-a55b", fake_obj),
+        ):
+            res = agent.diagnose_and_propose_fix(
+                test_code=FLAKY_CODE,
+                stage1_baseline=_make_batch(),
+                stage2_ledger=[_make_batch("cpu_heavy_load", 28, 30)],
+            )
+
+        assert isinstance(res, DiagnosisResponse)
+        assert len(res) == 3
+        title, diag, patched = res
+        assert title == "Live Fix"
+        assert res.fix_source == "nemotron_live"
+        assert res.model_used == "nvidia/Nemotron-3-Ultra-550b-a55b"
+        assert res.completion_id == "live-completion-999"
+        assert res["fix_source"] == "nemotron_live"
+
+    def test_diagnose_offline_fallback_provenance(self):
+        agent = NemotronAgent(api_key="dummy")
+        agent._call_with_fallback = MagicMock(side_effect=RuntimeError("connection refused"))
+
+        res = agent.diagnose_and_propose_fix(
+            test_code=FLAKY_CODE,
+            stage1_baseline=_make_batch(),
+            stage2_ledger=[_make_batch("cpu_heavy_load", 28, 30)],
+        )
+
+        assert isinstance(res, DiagnosisResponse)
+        assert len(res) == 3
+        title, diag, patched = res
+        assert res.fix_source == "offline_fallback_fixture"
+        assert res.model_used is None
+        assert res.completion_id is None
+        assert res.get("fix_source") == "offline_fallback_fixture"
+
+
+class TestNemotronDiskCache:
+    def test_cache_write_and_hit(self, tmp_path):
+        cache_file = tmp_path / "nemotron_responses.json"
+        agent = NemotronAgent(api_key="dummy", cache_path=cache_file, use_cache=True)
+
+        fake_resp = MagicMock()
+        fake_resp.choices = [MagicMock(message=MagicMock(content="Cached response text", reasoning_content=None))]
+        fake_resp.model = "nvidia/Nemotron-3_5-Lightning"
+        fake_resp.id = "cid-12345"
+        fake_resp.usage = MagicMock(prompt_tokens=42, completion_tokens=18)
+
+        # 1. First call: hits client and saves to cache_file
+        with patch.object(agent.client.chat.completions, "create", return_value=fake_resp) as mock_create:
+            text, model, resp = agent._call_with_fallback(
+                primary_model="nvidia/Nemotron-3_5-Lightning",
+                fallback_model="nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B",
+                messages=[{"role": "user", "content": "ping"}],
+            )
+            assert mock_create.call_count == 1
+            assert text == "Cached response text"
+            assert cache_file.exists()
+
+        # 2. Second call: hits disk cache, client is NOT called
+        with patch.object(agent.client.chat.completions, "create", side_effect=RuntimeError("Should not call!")) as mock_create:
+            text2, model2, resp2 = agent._call_with_fallback(
+                primary_model="nvidia/Nemotron-3_5-Lightning",
+                fallback_model="nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B",
+                messages=[{"role": "user", "content": "ping"}],
+            )
+            assert mock_create.call_count == 0
+            assert text2 == "Cached response text"
+            assert model2 == "nvidia/Nemotron-3_5-Lightning"
+            assert resp2.id == "cid-12345"
+
+    def test_cache_bypassed_when_use_cache_false(self, tmp_path):
+        cache_file = tmp_path / "nemotron_responses.json"
+        agent = NemotronAgent(api_key="dummy", cache_path=cache_file, use_cache=False)
+
+        fake_resp = MagicMock()
+        fake_resp.choices = [MagicMock(message=MagicMock(content="Fresh API text", reasoning_content=None))]
+        fake_resp.model = "nvidia/Nemotron-3_5-Lightning"
+        fake_resp.id = "fresh-id"
+        fake_resp.usage = MagicMock(prompt_tokens=10, completion_tokens=5)
+
+        with patch.object(agent.client.chat.completions, "create", return_value=fake_resp) as mock_create:
+            text, _, _ = agent._call_with_fallback(
+                primary_model="nvidia/Nemotron-3_5-Lightning",
+                fallback_model="nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B",
+                messages=[{"role": "user", "content": "ping"}],
+            )
+            assert mock_create.call_count == 1
+            assert text == "Fresh API text"
+
+    def test_cache_bypassed_when_fresh_true(self, tmp_path):
+        import json
+        cache_file = tmp_path / "nemotron_responses.json"
+        from agent_and_ui.nemotron_agent import _compute_cache_key
+
+        # Prepopulate cache with stale data
+        msg = [{"role": "user", "content": "ping"}]
+        key = _compute_cache_key("nvidia/Nemotron-3_5-Lightning", msg)
+        cache_file.write_text(json.dumps({
+            key: {
+                "text": "Stale cached text",
+                "model": "nvidia/Nemotron-3_5-Lightning",
+                "completion_id": "stale-id",
+                "prompt_tokens": 1,
+                "completion_tokens": 1,
+            }
+        }), encoding="utf-8")
+
+        agent = NemotronAgent(api_key="dummy", cache_path=cache_file, use_cache=True)
+
+        fake_resp = MagicMock()
+        fake_resp.choices = [MagicMock(message=MagicMock(content="Fresh replacement text", reasoning_content=None))]
+        fake_resp.model = "nvidia/Nemotron-3_5-Lightning"
+        fake_resp.id = "fresh-id-456"
+        fake_resp.usage = MagicMock(prompt_tokens=20, completion_tokens=10)
+
+        with patch.object(agent.client.chat.completions, "create", return_value=fake_resp) as mock_create:
+            text, _, _ = agent._call_with_fallback(
+                primary_model="nvidia/Nemotron-3_5-Lightning",
+                fallback_model="nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B",
+                messages=msg,
+                fresh=True,
+            )
+            assert mock_create.call_count == 1
+            assert text == "Fresh replacement text"
+
+        # Verify cache file was updated with fresh content
+        updated_cache = json.loads(cache_file.read_text(encoding="utf-8"))
+        assert updated_cache[key]["text"] == "Fresh replacement text"
+
 

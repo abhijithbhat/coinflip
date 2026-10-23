@@ -22,7 +22,7 @@ import time
 from pathlib import Path
 from typing import Any, AsyncGenerator, Optional
 
-from fastapi import Body, FastAPI, HTTPException, Query
+from fastapi import Body, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -32,6 +32,7 @@ from agent_and_ui.stats_engine import (
     enrich_trace_with_advanced_analytics,
     generate_streak_curve_data,
 )
+from sandbox_engine.attestation import CertificateAttestor
 
 logger = logging.getLogger("coinflip.app")
 
@@ -47,49 +48,95 @@ HERO_BADGE = "Replaying real recorded execution (2,000+ certification runs + NVI
 # 5-case flaky archetype catalog
 ARCHETYPE_CATALOG = ["hero", "order_pollution", "seed_sampling", "clock_expiry", "async_queue_race"]
 
-# Built-in profile metadata for fallback when JSON files are unavailable
-BUILTIN_PROFILES: dict[str, dict[str, Any]] = {
-    "hero": {
-        "trace_id": "builtin_hero_profile",
-        "project_name": "example-service",
-        "test_identifier": "example-service::test_worker.py",
-        "archetype": "hero",
-        "description": "Thread race condition under CPU stress — the canonical flaky test archetype.",
-        "triggering_stress_condition": "cpu_heavy_load",
-    },
-    "order_pollution": {
-        "trace_id": "builtin_order_pollution_profile",
-        "project_name": "example-service",
-        "test_identifier": "example-service::test_database.py",
-        "archetype": "order_pollution",
-        "description": "Shared mutable state leaked between tests under shuffle_order execution.",
-        "triggering_stress_condition": "shuffle_order",
-    },
-    "seed_sampling": {
-        "trace_id": "builtin_seed_sampling_profile",
-        "project_name": "ml-pipeline",
-        "test_identifier": "ml-pipeline::test_sampling.py",
-        "archetype": "seed_sampling",
-        "description": "Unseeded random number generator causes non-deterministic sampling divergence.",
-        "triggering_stress_condition": "seed_change",
-    },
-    "clock_expiry": {
-        "trace_id": "builtin_clock_expiry_profile",
-        "project_name": "auth-service",
-        "test_identifier": "auth-service::test_token_cache.py",
-        "archetype": "clock_expiry",
-        "description": "Token cache expiry assumes wall-clock monotonicity, breaks under clock_shift.",
-        "triggering_stress_condition": "clock_shift",
-    },
-    "async_queue_race": {
-        "trace_id": "builtin_async_queue_race_profile",
-        "project_name": "event-bus",
-        "test_identifier": "event-bus::test_event_queue.py",
-        "archetype": "async_queue_race",
-        "description": "Producer-consumer async queue drain race under CPU stress.",
-        "triggering_stress_condition": "cpu_heavy_load",
-    },
-}
+
+def _get_profile_metrics(case_name: str) -> dict[str, int]:
+    """Dynamically reads baseline_failures, baseline_runs, and stress_failures from recorded trace."""
+    target = RECORDED_TRACES_DIR / f"{case_name}.json"
+    if not target.exists() and case_name == "hero" and HERO_TRACE_FILE.exists():
+        target = HERO_TRACE_FILE
+
+    if target.exists():
+        try:
+            with open(target, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            s1 = data.get("stage1_baseline", {})
+            b_runs = int(s1.get("total_runs", 300))
+            b_fails = int(s1.get("failures", 0))
+
+            trigger = data.get("triggering_stress_condition")
+            stress_fails = 0
+            for item in data.get("stage2_ledger", []):
+                if item.get("perturbation") == trigger:
+                    stress_fails = int(item.get("failures", 0))
+                    break
+            if not stress_fails and data.get("stage2_ledger"):
+                stress_fails = max(int(it.get("failures", 0)) for it in data["stage2_ledger"])
+
+            return {
+                "baseline_failures": b_fails,
+                "baseline_runs": b_runs,
+                "stress_failures": stress_fails,
+            }
+        except Exception as exc:
+            logger.warning("Could not read metrics for profile %s: %s", case_name, exc)
+
+    return {
+        "baseline_failures": 21,
+        "baseline_runs": 300,
+        "stress_failures": 28,
+    }
+
+
+def _init_builtin_profiles() -> dict[str, dict[str, Any]]:
+    profiles: dict[str, dict[str, Any]] = {
+        "hero": {
+            "trace_id": "builtin_hero_profile",
+            "project_name": "example-service",
+            "test_identifier": "example-service::test_worker.py",
+            "archetype": "hero",
+            "description": "Thread race condition under CPU stress — the canonical flaky test archetype.",
+            "triggering_stress_condition": "cpu_heavy_load",
+        },
+        "order_pollution": {
+            "trace_id": "builtin_order_pollution_profile",
+            "project_name": "example-service",
+            "test_identifier": "example-service::test_database.py",
+            "archetype": "order_pollution",
+            "description": "Shared mutable state leaked between tests under shuffle_order execution.",
+            "triggering_stress_condition": "shuffle_order",
+        },
+        "seed_sampling": {
+            "trace_id": "builtin_seed_sampling_profile",
+            "project_name": "ml-pipeline",
+            "test_identifier": "ml-pipeline::test_sampling.py",
+            "archetype": "seed_sampling",
+            "description": "Unseeded random number generator causes non-deterministic sampling divergence.",
+            "triggering_stress_condition": "seed_change",
+        },
+        "clock_expiry": {
+            "trace_id": "builtin_clock_expiry_profile",
+            "project_name": "auth-service",
+            "test_identifier": "auth-service::test_token_cache.py",
+            "archetype": "clock_expiry",
+            "description": "Token cache expiry assumes wall-clock monotonicity, breaks under clock_shift.",
+            "triggering_stress_condition": "clock_shift",
+        },
+        "async_queue_race": {
+            "trace_id": "builtin_async_queue_race_profile",
+            "project_name": "event-bus",
+            "test_identifier": "event-bus::test_event_queue.py",
+            "archetype": "async_queue_race",
+            "description": "Producer-consumer async queue drain race under CPU stress.",
+            "triggering_stress_condition": "cpu_heavy_load",
+        },
+    }
+    for k, v in profiles.items():
+        v.update(_get_profile_metrics(k))
+    return profiles
+
+
+# Built-in profile metadata with dynamic baseline and stress failure numbers
+BUILTIN_PROFILES: dict[str, dict[str, Any]] = _init_builtin_profiles()
 
 
 class RunLiveRequest(BaseModel):
@@ -271,15 +318,20 @@ def get_trace_by_name(trace_name: str) -> dict[str, Any]:
             profile["is_recorded_replay"] = False
             profile["is_builtin_profile"] = True
             profile["timestamp_utc"] = "2026-10-17T12:00:00Z"
+
+            b_fails = profile.get("baseline_failures", 21)
+            b_runs = profile.get("baseline_runs", 300)
+            b_rate = round(b_fails / max(1, b_runs), 4)
+
             profile["stage1_baseline"] = {
                 "perturbation": "baseline",
                 "label": "Baseline (normal OS conditions)",
-                "total_runs": 300,
-                "failures": 21,
-                "passes": 279,
-                "failure_rate": 0.07,
-                "ci_95_lower": 0.0462,
-                "ci_95_upper": 0.1046,
+                "total_runs": b_runs,
+                "failures": b_fails,
+                "passes": b_runs - b_fails,
+                "failure_rate": b_rate,
+                "ci_95_lower": round(max(0.0, b_rate - 0.025), 4),
+                "ci_95_upper": round(min(1.0, b_rate + 0.035), 4),
                 "execution_backend": "local_isolated",
                 "sample_failure_logs": [],
                 "run_dots": [],
@@ -287,10 +339,7 @@ def get_trace_by_name(trace_name: str) -> dict[str, Any]:
             profile["stage2_ledger"] = []
             profile["fix_attempts"] = []
             profile["final_verdict"] = "NOT_YET_CERTIFIED"
-            profile["models_used"] = {
-                "bulk_log_reading": "nvidia/Nemotron-3_5-Lightning",
-                "deep_reasoning": "nvidia/Nemotron-3-Ultra-550b-a55b",
-            }
+            profile["models_used"] = {}
             return enrich_trace_with_advanced_analytics(profile)
 
     # Standard path resolution for other trace files
@@ -323,11 +372,11 @@ def get_streak_curve() -> list[dict[str, Any]]:
 async def run_live(
     payload: Optional[RunLiveRequest] = Body(default=None),
 ) -> dict[str, Any]:
-    """Runs live flaky test investigation via CoinflipOrchestrator with safe subprocess fallback.
+    """Runs live flaky test investigation via CoinflipOrchestrator.
 
     Uses a small batch size (default 30 runs/condition, clamped between 10 and 45).
-    Safely executes the chosen benchmark case under an asyncio lock to protect resources.
-    If the worker subprocess fails, falls back gracefully to pre-recorded traces.
+    Acquires LIVE_RUN_LOCK with a 30.0s timeout and always releases in finally.
+    Raises HTTPException 503 if live execution fails.
     """
     req = payload or RunLiveRequest()
 
@@ -339,159 +388,86 @@ async def run_live(
     case_key = req.case_id if req.case_id in CASE_BENCHMARK_CONFIG else "hero"
     case_cfg = CASE_BENCHMARK_CONFIG[case_key]
 
-    async with LIVE_RUN_LOCK:
-        try:
-            from sandbox_engine.orchestrator import CoinflipOrchestrator
+    try:
+        await asyncio.wait_for(LIVE_RUN_LOCK.acquire(), timeout=30.0)
+    except asyncio.TimeoutError:
+        raise HTTPException(
+            status_code=503,
+            detail="Live execution unavailable: acquisition timeout (30s) waiting for LIVE_RUN_LOCK.",
+        )
 
-            orchestrator = CoinflipOrchestrator(
-                repo_dir=case_cfg["repo_dir"],
-                test_target=case_cfg["test_target"],
-                project_name=case_cfg["project_name"],
-                max_concurrency=clamped_runs,
-                mode="local_isolated",
-                execution_backend="local_isolated",
-            )
+    try:
+        from sandbox_engine.orchestrator import CoinflipOrchestrator
 
-            trace = await orchestrator.run(
-                stage1_runs=stage1_runs,
-                stage2_runs=stage2_runs,
-                stage4_cert_runs=stage4_runs,
-                target_limit=req.target_limit,
-                demonstrate_rejection_catch=req.demonstrate_rejection_catch,
-                fast_live_mode=True,
-            )
+        orchestrator = CoinflipOrchestrator(
+            repo_dir=case_cfg["repo_dir"],
+            test_target=case_cfg["test_target"],
+            project_name=case_cfg["project_name"],
+            max_concurrency=clamped_runs,
+            mode="local_isolated",
+            execution_backend="local_isolated",
+        )
 
-            data = trace.model_dump() if hasattr(trace, "model_dump") else trace.dict()
-            data["streak_curve_data"] = generate_streak_curve_data()
-            data["execution_mode_badge"] = "Live Execution (Coinflip Engine)"
-            data["is_fallback"] = False
-            data["llm_metadata"] = data.get("llm_call_metadata") or {}
-            return enrich_trace_with_advanced_analytics(data)
+        trace = await orchestrator.run(
+            stage1_runs=stage1_runs,
+            stage2_runs=stage2_runs,
+            stage4_cert_runs=stage4_runs,
+            target_limit=req.target_limit,
+            demonstrate_rejection_catch=req.demonstrate_rejection_catch,
+            fast_live_mode=True,
+        )
 
-        except Exception as exc:
-            logger.warning(
-                "Live execution subprocess failed (%s: %s). Falling back to recorded trace.",
-                type(exc).__name__,
-                exc,
-            )
-            recorded = _load_recorded_trace(case_key)
-            if recorded is None:
-                recorded = load_hero_trace()
-            recorded["is_fallback"] = True
-            recorded["fallback_note"] = (
-                f"Live run subprocess encountered an issue ({type(exc).__name__}: {exc}). "
-                f"Gracefully fell back to pre-recorded {case_key} trace so UI inspection is uninterrupted."
-            )
-            recorded["execution_mode_badge"] = (
-                f"Replaying real recorded execution (2,000+ certification runs + NVIDIA Nemotron 3 Ultra) [Subprocess Fallback]"
-            )
-            return enrich_trace_with_advanced_analytics(recorded)
+        data = trace.model_dump() if hasattr(trace, "model_dump") else trace.dict()
+        data["streak_curve_data"] = generate_streak_curve_data()
+        data["execution_mode_badge"] = "Live Execution (Coinflip Engine)"
+        data["is_fallback"] = False
+        data["llm_metadata"] = data.get("llm_call_metadata") or {}
+        return enrich_trace_with_advanced_analytics(data)
+
+    except Exception as exc:
+        logger.error(
+            "Live execution failed (%s: %s).",
+            type(exc).__name__,
+            exc,
+        )
+        raise HTTPException(
+            status_code=503,
+            detail=f"Live execution unavailable: {str(exc)}",
+        )
+    finally:
+        if LIVE_RUN_LOCK.locked():
+            LIVE_RUN_LOCK.release()
 
 
 # ---------------------------------------------------------------------------
 # Phase 5: GET /api/stream-live (SSE StreamingResponse)
 # ---------------------------------------------------------------------------
 
-SSE_STAGES = [
-    {
-        "event": "stage1_measure",
-        "data": {
-            "stage": 1,
-            "label": "Stage 1: Baseline Measurement",
-            "status": "running",
-            "message": "Measuring baseline flakiness rate across 300 parallel runs...",
-        },
-    },
-    {
-        "event": "stage2_perturbation",
-        "data": {
-            "stage": 2,
-            "label": "Stage 2: 7-Condition Perturbation Ledger",
-            "status": "running",
-            "message": "Executing controlled experiments: baseline, shuffle_order, seed_change, clock_shift, network_cut, cpu_half_cores, cpu_heavy_load...",
-        },
-    },
-    {
-        "event": "stage3_nemotron_reasoning",
-        "data": {
-            "stage": 3,
-            "label": "Stage 3: Nemotron 3 Ultra Diagnosis",
-            "status": "running",
-            "message": "Nemotron 3 Ultra analyzing root cause from Stage 2 ledger evidence...",
-        },
-    },
-    {
-        "event": "stage4_sprt_early_reject",
-        "data": {
-            "stage": 4,
-            "label": "Stage 4: SPRT Early Rejection (Naive Fix)",
-            "status": "rejected",
-            "message": "Wald SPRT detected stress failures at run 127/1000 — EARLY_REJECT (87.3% compute saved).",
-        },
-    },
-    {
-        "event": "stage3_nemotron_retry",
-        "data": {
-            "stage": 3,
-            "label": "Stage 3: Nemotron Retry with Rejection Evidence",
-            "status": "running",
-            "message": "Re-invoking Nemotron 3 Ultra with Stage 4 rejection evidence for deterministic root-cause fix...",
-        },
-    },
-    {
-        "event": "stage4_1000_certified",
-        "data": {
-            "stage": 4,
-            "label": "Stage 4: 1,000-Run Dual Certification",
-            "status": "certified",
-            "message": "0/1000 failures under quiet AND stress conditions. UCB ≤ 0.30% (Rule of Three). CERTIFIED!",
-        },
-    },
-    {
-        "event": "stage5_attestation_signed",
-        "data": {
-            "stage": 5,
-            "label": "Stage 5: SHA-256 Merkle Attestation Signed",
-            "status": "complete",
-            "message": "Cryptographic certificate signed: SHA-256 Merkle root + patch digest = 100% tamper-proof.",
-        },
-    },
-]
-
-
-async def _sse_event_generator() -> AsyncGenerator[str, None]:
-    """Yields Server-Sent Events for each stage of the Coinflip pipeline."""
-    for entry in SSE_STAGES:
-        event_name = entry["event"]
-        data_payload = json.dumps(entry["data"])
-        yield f"event: {event_name}\ndata: {data_payload}\n\n"
-        await asyncio.sleep(0.15)  # Brief delay between stage events
-
-    # Final done event
-    yield f"event: done\ndata: {json.dumps({'status': 'complete', 'message': 'Pipeline finished.'})}\n\n"
-
 
 @app.get("/api/stream-live")
 async def stream_live(
+    request: Request,
     case_id: Optional[str] = Query(default=None, description="Benchmark case ID (e.g. hero, order_pollution, seed_sampling, clock_expiry)"),
     runs: Optional[int] = Query(default=None, description="Number of runs per condition"),
 ) -> StreamingResponse:
-    """SSE StreamingResponse emitting staged pipeline events for real-time UI updates."""
-    if case_id is None and runs is None:
-        # Fast event replay for unit tests & demo mode
-        return StreamingResponse(
-            _sse_event_generator(),
-            media_type="text/event-stream",
-            headers={
-                "Cache-Control": "no-cache",
-                "Connection": "keep-alive",
-                "X-Accel-Buffering": "no",
-            },
+    """SSE StreamingResponse emitting real stage progress from CoinflipOrchestrator."""
+    case_key = case_id if case_id else "hero"
+    if case_key not in CASE_BENCHMARK_CONFIG:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid case_id '{case_key}'. Must be one of {list(CASE_BENCHMARK_CONFIG.keys())}",
         )
 
-    case_key = case_id if case_id and case_id in CASE_BENCHMARK_CONFIG else "hero"
     case_cfg = CASE_BENCHMARK_CONFIG[case_key]
     clamped_runs = max(10, min(45, runs if runs is not None else 30))
+
+    try:
+        await asyncio.wait_for(LIVE_RUN_LOCK.acquire(), timeout=30.0)
+    except asyncio.TimeoutError:
+        raise HTTPException(
+            status_code=503,
+            detail="Live execution unavailable: acquisition timeout (30s) waiting for LIVE_RUN_LOCK.",
+        )
 
     async def _live_stream_generator() -> AsyncGenerator[str, None]:
         queue: asyncio.Queue[tuple[str, dict[str, Any]] | None] = asyncio.Queue()
@@ -500,35 +476,40 @@ async def stream_live(
             queue.put_nowait((evt, data))
 
         async def _run_pipeline() -> None:
-            async with LIVE_RUN_LOCK:
-                try:
-                    from sandbox_engine.orchestrator import CoinflipOrchestrator
+            try:
+                from sandbox_engine.orchestrator import CoinflipOrchestrator
 
-                    orchestrator = CoinflipOrchestrator(
-                        repo_dir=case_cfg["repo_dir"],
-                        test_target=case_cfg["test_target"],
-                        project_name=case_cfg["project_name"],
-                        max_concurrency=clamped_runs,
-                        mode="local_isolated",
-                        execution_backend="local_isolated",
-                    )
-                    await orchestrator.run_full_pipeline(
-                        stage1_runs=clamped_runs,
-                        stage2_runs=clamped_runs,
-                        stage4_cert_runs=clamped_runs,
-                        fast_live_mode=True,
-                        on_stage_event=_enqueue,
-                    )
-                except Exception as exc:
-                    logger.warning("Live stream failed (%s: %s)", type(exc).__name__, exc)
-                    queue.put_nowait(("error", {"message": f"{type(exc).__name__}: {exc}"}))
-                finally:
-                    queue.put_nowait(None)
+                orchestrator = CoinflipOrchestrator(
+                    repo_dir=case_cfg["repo_dir"],
+                    test_target=case_cfg["test_target"],
+                    project_name=case_cfg["project_name"],
+                    max_concurrency=clamped_runs,
+                    mode="local_isolated",
+                    execution_backend="local_isolated",
+                )
+                await orchestrator.run_full_pipeline(
+                    stage1_runs=clamped_runs,
+                    stage2_runs=clamped_runs,
+                    stage4_cert_runs=clamped_runs,
+                    fast_live_mode=True,
+                    on_stage_event=_enqueue,
+                )
+            except Exception as exc:
+                logger.warning("Live stream failed (%s: %s)", type(exc).__name__, exc)
+                queue.put_nowait(("error", {"message": f"{type(exc).__name__}: {exc}"}))
+            finally:
+                queue.put_nowait(None)
 
         task = asyncio.create_task(_run_pipeline())
         try:
             while True:
-                item = await queue.get()
+                if await request.is_disconnected():
+                    logger.info("Client disconnected from stream-live")
+                    break
+                try:
+                    item = await asyncio.wait_for(queue.get(), timeout=1.0)
+                except asyncio.TimeoutError:
+                    continue
                 if item is None:
                     break
                 evt, payload = item
@@ -536,6 +517,8 @@ async def stream_live(
         finally:
             if not task.done():
                 task.cancel()
+            if LIVE_RUN_LOCK.locked():
+                LIVE_RUN_LOCK.release()
 
     return StreamingResponse(
         _live_stream_generator(),
@@ -563,30 +546,136 @@ class VerifyAttestationRequest(BaseModel):
 
 @app.post("/api/verify-attestation")
 def verify_attestation(
-    payload: Optional[VerifyAttestationRequest] = Body(default=None),
+    payload: Optional[Any] = Body(default=None),
 ) -> dict[str, Any]:
     """Verifies the cryptographic attestation of a Coinflip certificate trace.
 
-    Returns SHA-256 Merkle root, patch SHA-256, and trace payload SHA-256.
+    Validates leaf counts, run_dots, arithmetic, Merkle root, HMAC signature,
+    and cross-checks against recorded traces if not live_custom.
+    Returns HTTP 200 with verified=False if tampering is detected.
     """
-    req = payload or VerifyAttestationRequest()
-    trace_data = req.trace
+    trace_data: dict[str, Any] | None = None
+    if isinstance(payload, dict):
+        if "trace" in payload and isinstance(payload["trace"], dict):
+            trace_data = payload["trace"]
+        elif "stage1_baseline" in payload:
+            trace_data = payload
+    elif hasattr(payload, "trace") and getattr(payload, "trace"):
+        trace_data = getattr(payload, "trace")
 
     if trace_data is None:
-        # Default to hero trace
         if not HERO_TRACE_FILE.exists():
             raise HTTPException(status_code=404, detail="No trace provided and hero trace not found.")
         with open(HERO_TRACE_FILE, "r", encoding="utf-8") as f:
             trace_data = json.load(f)
 
-    # Ensure trace is enriched with attestation
-    trace_data = enrich_trace_with_advanced_analytics(trace_data)
-    attestation = trace_data.get("attestation", {})
+    # 1. Batch arithmetic & run_dots validation
+    batches: list[tuple[str, dict[str, Any]]] = []
+    if "stage1_baseline" in trace_data and isinstance(trace_data["stage1_baseline"], dict):
+        batches.append(("stage1_baseline", trace_data["stage1_baseline"]))
 
-    # Compute trace payload SHA-256
+    s2_list = trace_data.get("stage2_ledger") or trace_data.get("stage2_perturbations") or []
+    for idx, b in enumerate(s2_list):
+        if isinstance(b, dict):
+            batches.append((f"stage2_ledger[{idx}]", b))
+
+    fix_list = trace_data.get("fix_attempts") or trace_data.get("stage4_certification") or []
+    for idx, att in enumerate(fix_list):
+        if isinstance(att, dict):
+            norm = att.get("normal_cert_result")
+            if isinstance(norm, dict):
+                batches.append((f"fix_attempts[{idx}].normal_cert_result", norm))
+            stress = att.get("stress_cert_result")
+            if isinstance(stress, dict):
+                batches.append((f"fix_attempts[{idx}].stress_cert_result", stress))
+            if "total_runs" in att and "failures" in att:
+                batches.append((f"fix_attempts[{idx}]", att))
+
+    for label, batch in batches:
+        total_runs = int(batch.get("total_runs", 0))
+        failures = int(batch.get("failures", 0))
+        passes = int(batch.get("passes", 0))
+
+        if "passes" in batch and passes + failures != total_runs:
+            return {
+                "verified": False,
+                "reason": f"Tampering detected: arithmetic mismatch in {label}: passes ({passes}) + failures ({failures}) != total_runs ({total_runs})",
+            }
+
+        run_dots = batch.get("run_dots")
+        if run_dots is not None and len(run_dots) > 0:
+            actual_failures = sum(1 for d in run_dots if not d)
+            actual_total = len(run_dots)
+            if failures != actual_failures:
+                return {
+                    "verified": False,
+                    "reason": f"Tampering detected: failures count in {label}: recorded failures={failures} != actual run_dots failures={actual_failures}",
+                }
+            if total_runs != actual_total:
+                return {
+                    "verified": False,
+                    "reason": f"Tampering detected: total_runs in {label}: recorded total_runs={total_runs} != actual len(run_dots)={actual_total}",
+                }
+
+    # 2. Cryptographic Attestation verification via CertificateAttestor
+    attestor = CertificateAttestor()
+    attestation = trace_data.get("attestation") or trace_data.get("cryptographic_attestation")
+    if not attestation:
+        att_obj = attestor.build_trace_attestation(trace_data)
+        attestation = att_obj.model_dump() if hasattr(att_obj, "model_dump") else att_obj.dict()
+        trace_data["attestation"] = attestation
+
+    ver_res = attestor.verify_trace(trace_data)
+    if not ver_res.get("verified", False):
+        return {
+            "verified": False,
+            "reason": f"Tampering detected: {ver_res.get('reason', 'Attestation verification failed')}",
+            "claimed_merkle_root": ver_res.get("claimed_merkle_root", ""),
+            "computed_merkle_root": ver_res.get("computed_merkle_root", ""),
+        }
+
+    # 3. Cross-check against shared_contracts/recorded_traces/{case}.json if execution_mode != "live_custom"
+    exec_mode = trace_data.get("execution_mode", "")
+    if exec_mode != "live_custom":
+        case_candidate = trace_data.get("archetype") or trace_data.get("case_id") or ""
+        if not case_candidate or case_candidate not in ARCHETYPE_CATALOG:
+            for cat in ARCHETYPE_CATALOG:
+                if cat in str(trace_data.get("trace_id", "")) or cat in str(trace_data.get("test_identifier", "")):
+                    case_candidate = cat
+                    break
+        if case_candidate and case_candidate in ARCHETYPE_CATALOG:
+            rec_file = RECORDED_TRACES_DIR / f"{case_candidate}.json"
+            if not rec_file.exists() and case_candidate == "hero" and HERO_TRACE_FILE.exists():
+                rec_file = HERO_TRACE_FILE
+            if rec_file.exists():
+                try:
+                    with open(rec_file, "r", encoding="utf-8") as f:
+                        rec_json = json.load(f)
+                    rec_s1 = rec_json.get("stage1_baseline", {})
+                    cur_s1 = trace_data.get("stage1_baseline", {})
+                    if (
+                        rec_s1.get("failures") is not None
+                        and cur_s1.get("failures") is not None
+                        and cur_s1.get("total_runs") == rec_s1.get("total_runs")
+                        and cur_s1.get("failures") != rec_s1.get("failures")
+                    ):
+                        return {
+                            "verified": False,
+                            "reason": f"Tampering detected: baseline failures {cur_s1.get('failures')} != canonical recorded {rec_s1.get('failures')}",
+                        }
+                    rec_merkle = (rec_json.get("attestation") or {}).get("experiment_ledger_merkle_root")
+                    cur_merkle = attestation.get("experiment_ledger_merkle_root") or attestation.get("ledger_merkle_root")
+                    if rec_merkle and cur_merkle and rec_merkle != cur_merkle:
+                        return {
+                            "verified": False,
+                            "reason": f"Tampering detected: Merkle root mismatch with canonical recorded trace for {case_candidate}",
+                        }
+                except Exception as exc:
+                    logger.warning("Could not cross-check recorded trace: %s", exc)
+
+    # 4. Success payload
     trace_json_str = json.dumps(trace_data, sort_keys=True, default=str)
     trace_payload_sha256 = hashlib.sha256(trace_json_str.encode("utf-8")).hexdigest()
-
     merkle_root = attestation.get("experiment_ledger_merkle_root", attestation.get("ledger_merkle_root", ""))
     patch_diff_hash = attestation.get("patch_diff_sha256", attestation.get("patch_sha256", ""))
 
@@ -599,6 +688,7 @@ def verify_attestation(
         "patch_diff_sha256": patch_diff_hash,
         "trace_payload_sha256": trace_payload_sha256,
         "trace_sha256": trace_payload_sha256,
+        "reason": ver_res.get("reason", "Cryptographic attestation verified successfully."),
     }
 
 
