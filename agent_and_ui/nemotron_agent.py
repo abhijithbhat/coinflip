@@ -10,11 +10,13 @@ Implements:
 from __future__ import annotations
 
 import difflib
+import hashlib
 import json
 import logging
 import os
 from pathlib import Path
 import re
+import types
 from typing import Any
 
 from dotenv import load_dotenv
@@ -23,6 +25,116 @@ from openai import OpenAI
 # Load environment variables from .env
 load_dotenv()
 logger = logging.getLogger("agent_and_ui.nemotron_agent")
+
+# Default location for the deterministic disk response cache
+CACHE_FILE_DEFAULT = Path(".cache/nemotron_responses.json")
+
+
+class CachedUsage:
+    def __init__(self, prompt_tokens: int = 0, completion_tokens: int = 0):
+        self.prompt_tokens = prompt_tokens
+        self.completion_tokens = completion_tokens
+
+
+class CachedMessage:
+    def __init__(self, content: str):
+        self.content = content
+        self.reasoning_content = None
+
+
+class CachedChoice:
+    def __init__(self, content: str):
+        self.message = CachedMessage(content)
+
+
+class CachedResponse:
+    def __init__(
+        self,
+        text: str,
+        model: str,
+        completion_id: str,
+        prompt_tokens: int = 0,
+        completion_tokens: int = 0,
+    ):
+        self.id = completion_id
+        self.model = model
+        self.usage = CachedUsage(prompt_tokens, completion_tokens)
+        self.choices = [CachedChoice(text)]
+
+
+def _compute_cache_key(model: str, messages: list[dict[str, str]]) -> str:
+    """Computes a deterministic SHA-256 cache key based on model ID and prompt messages."""
+    serialized = json.dumps(messages, sort_keys=True, ensure_ascii=False)
+    prompt_hash = hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+    return f"{model}:{prompt_hash}"
+
+
+def _load_response_cache(cache_path: Path) -> dict[str, Any]:
+    """Loads JSON cache from disk if it exists."""
+    if not cache_path.exists():
+        return {}
+    try:
+        return json.loads(cache_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        logger.warning("Could not read nemotron response cache from %s: %s", cache_path, exc)
+        return {}
+
+
+def _write_response_cache(cache_path: Path, cache_data: dict[str, Any]) -> None:
+    """Atomically persists JSON cache to disk."""
+    try:
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        cache_path.write_text(json.dumps(cache_data, indent=2, ensure_ascii=False), encoding="utf-8")
+    except Exception as exc:
+        logger.warning("Could not write nemotron response cache to %s: %s", cache_path, exc)
+
+
+class DiagnosisResponse(tuple):
+    """3-tuple subclass containing (fix_title, root_cause_diagnosis, patched_code)
+
+    along with provenance metadata: fix_source, model_used, completion_id.
+    Fully backwards-compatible with tuple unpacking and indexing:
+      title, diag, code = res
+      res.fix_source
+      res["fix_source"]
+      res.get("fix_source")
+    """
+    fix_title: str
+    root_cause_diagnosis: str
+    patched_code: str
+    fix_source: str
+    model_used: str | None
+    completion_id: str | None
+
+    def __new__(
+        cls,
+        fix_title: str,
+        root_cause_diagnosis: str,
+        patched_code: str,
+        *,
+        fix_source: str = "nemotron_live",
+        model_used: str | None = None,
+        completion_id: str | None = None,
+    ):
+        instance = super().__new__(cls, (fix_title, root_cause_diagnosis, patched_code))
+        instance.fix_title = fix_title
+        instance.root_cause_diagnosis = root_cause_diagnosis
+        instance.patched_code = patched_code
+        instance.fix_source = fix_source
+        instance.model_used = model_used
+        instance.completion_id = completion_id
+        return instance
+
+    def __getitem__(self, item: Any) -> Any:
+        if isinstance(item, str):
+            if hasattr(self, item):
+                return getattr(self, item)
+            raise KeyError(item)
+        return super().__getitem__(item)
+
+    def get(self, key: str, default: Any = None) -> Any:
+        return getattr(self, key, default)
+
 
 # Verified Nebius Token Factory Model IDs
 LIGHTNING_MODEL = "nvidia/Nemotron-3_5-Lightning"
@@ -137,6 +249,10 @@ class NemotronAgent:
         api_key: str | None = None,
         base_url: str | None = None,
         timeout: float = 90.0,
+        *,
+        use_cache: bool = True,
+        fresh: bool = False,
+        cache_path: Path | str | None = None,
     ) -> None:
         self.api_key = api_key or os.getenv("NEBIUS_API_KEY", "")
         self.base_url = base_url or os.getenv(
@@ -151,6 +267,22 @@ class NemotronAgent:
         self.last_call_metadata: dict[str, Any] = {}
         self.summarize_call_metadata: dict[str, Any] = {}
         self.diagnose_call_metadata: dict[str, Any] = {}
+        self.invoked_models: list[str] = []
+        self.use_cache = use_cache
+        self.fresh = fresh
+        self.cache_path = Path(cache_path) if cache_path else CACHE_FILE_DEFAULT
+
+    @property
+    def models_used(self) -> dict[str, str]:
+        """Dynamic mapping of role to model name, populated only when live API calls succeed."""
+        res: dict[str, str] = {}
+        sum_m = getattr(self, "summarize_call_metadata", {}) or {}
+        if sum_m.get("live_api_succeeded") and sum_m.get("model"):
+            res["bulk_log_reading"] = str(sum_m["model"])
+        diag_m = getattr(self, "diagnose_call_metadata", {}) or {}
+        if diag_m.get("live_api_succeeded") and diag_m.get("model"):
+            res["deep_reasoning"] = str(diag_m["model"])
+        return res
 
     def _call_with_fallback(
         self,
@@ -160,11 +292,37 @@ class NemotronAgent:
         temperature: float = 0.2,
         max_tokens: int = 4096,
         timeout: float | None = None,
+        *,
+        use_cache: bool | None = None,
+        fresh: bool | None = None,
     ) -> tuple[str, str, Any]:
         """
         Call primary Nemotron model with fallback to secondary model on error or empty content.
+        Uses SHA-256 disk cache at .cache/nemotron_responses.json unless use_cache=False or fresh=True.
         Returns (text, model_used, response_obj).
         """
+        effective_use_cache = self.use_cache if use_cache is None else use_cache
+        effective_fresh = self.fresh if fresh is None else fresh
+
+        # 1. Check disk cache if caching is active and fresh is not requested
+        if effective_use_cache and not effective_fresh:
+            cache_data = _load_response_cache(self.cache_path)
+            for model_id in (primary_model, fallback_model):
+                cache_key = _compute_cache_key(model_id, messages)
+                if cache_key in cache_data:
+                    entry = cache_data[cache_key]
+                    cached_text = entry.get("text", "")
+                    if cached_text:
+                        cached_resp = CachedResponse(
+                            text=cached_text,
+                            model=entry.get("model", model_id),
+                            completion_id=entry.get("completion_id", f"cached-{os.urandom(4).hex()}"),
+                            prompt_tokens=entry.get("prompt_tokens", 0),
+                            completion_tokens=entry.get("completion_tokens", 0),
+                        )
+                        return cached_text, model_id, cached_resp
+
+        # 2. Make live API call
         last_error: Exception | None = None
         for model_id in (primary_model, fallback_model):
             try:
@@ -180,6 +338,26 @@ class NemotronAgent:
                 msg = response.choices[0].message
                 text = _extract_response_text(msg)
                 if text:
+                    # Dynamically track model only when real API call succeeds
+                    if model_id not in self.invoked_models:
+                        self.invoked_models.append(model_id)
+
+                    # Update disk cache if caching is enabled
+                    if effective_use_cache:
+                        cache_data = _load_response_cache(self.cache_path)
+                        cache_key = _compute_cache_key(model_id, messages)
+                        prompt_toks = getattr(getattr(response, "usage", None), "prompt_tokens", 0) or 0
+                        comp_toks = getattr(getattr(response, "usage", None), "completion_tokens", 0) or 0
+                        comp_id = getattr(response, "id", "") or f"mock-{os.urandom(4).hex()}"
+                        cache_data[cache_key] = {
+                            "text": text,
+                            "model": model_id,
+                            "completion_id": comp_id,
+                            "prompt_tokens": prompt_toks,
+                            "completion_tokens": comp_toks,
+                        }
+                        _write_response_cache(self.cache_path, cache_data)
+
                     return text, model_id, response
             except Exception as exc:
                 last_error = exc
@@ -389,13 +567,13 @@ class NemotronAgent:
         self,
         test_code: str,
         failure_summary: str,
-    ) -> tuple[str, str, str]:
+    ) -> DiagnosisResponse:
         """
         Stage 3 Attempt 1: Generate a naive quick fix (raise sleep) to demonstrate
         Coinflip's stress-rejection catch. Mirrors NemotronBridge.generate_naive_quick_fix.
 
         Returns:
-            tuple[str, str, str]: (fix_title, root_cause_diagnosis, patched_code)
+            DiagnosisResponse: (fix_title, root_cause_diagnosis, patched_code) with fix_source="naive_baseline_fixture"
         """
         title = "Quick Fix: Raise wait(9ms) to wait(50ms)"
         diagnosis = (
@@ -413,7 +591,14 @@ class NemotronAgent:
             patched_code = re.sub(r"time\.sleep\(\s*[\d\.]+\s*\)", "time.sleep(0.050)", test_code)
         else:
             patched_code = test_code
-        return title, diagnosis, patched_code
+        return DiagnosisResponse(
+            title,
+            diagnosis,
+            patched_code,
+            fix_source="naive_baseline_fixture",
+            model_used=None,
+            completion_id=None,
+        )
 
     def diagnose_and_propose_fix(
         self,
@@ -426,7 +611,9 @@ class NemotronAgent:
         timeline_profile: dict | None = None,
         ast_audit: dict | None = None,
         fast_live_mode: bool = False,
-    ) -> tuple[str, str, str]:
+        use_cache: bool | None = None,
+        fresh: bool | None = None,
+    ) -> DiagnosisResponse:
         """
         Stage 3 Root Cause Diagnosis & Fix Generator.
         Calls nvidia/Nemotron-3-Ultra-550b-a55b (or Nemotron-3_5-Lightning in fast_live_mode)
@@ -438,7 +625,7 @@ class NemotronAgent:
         Tracks metadata in self.diagnose_call_metadata and self.last_call_metadata.
 
         Returns:
-            tuple[str, str, str]: (fix_title, root_cause_diagnosis, patched_code)
+            DiagnosisResponse: (fix_title, root_cause_diagnosis, patched_code) with provenance
         """
         # Format Stage 1 Baseline
         b_runs = _extract_attr(stage1_baseline, "total_runs", 300)
@@ -582,6 +769,8 @@ class NemotronAgent:
                 temperature=0.1 if fast_live_mode else 0.2,
                 max_tokens=target_tokens,
                 timeout=target_timeout,
+                use_cache=use_cache,
+                fresh=fresh,
             )
             if len(call_res) == 3:
                 raw_text, model_used, response_obj = call_res
@@ -644,7 +833,14 @@ class NemotronAgent:
             self.diagnose_call_metadata = meta
             self.last_call_metadata = meta
 
-            return fix_title, root_cause_diagnosis, patched_code
+            return DiagnosisResponse(
+                fix_title,
+                root_cause_diagnosis,
+                patched_code,
+                fix_source="nemotron_live",
+                model_used=response_model,
+                completion_id=completion_id,
+            )
 
         except Exception as exc:
             if not fast_live_mode and isinstance(exc, ValueError) and "Expected JSON object" in str(exc):
@@ -711,10 +907,13 @@ class NemotronAgent:
                 fix_title = "Coinflip Certified Fix: Replace sleep with deterministic queue drain synchronization"
                 fix_diag = "Asynchronous event queue relies on fixed sleep instead of waiting for worker thread drain."
 
-            return (
+            return DiagnosisResponse(
                 fix_title,
                 fix_diag,
                 patched_code,
+                fix_source="offline_fallback_fixture",
+                model_used=None,
+                completion_id=None,
             )
 
 
@@ -729,20 +928,41 @@ def get_agent() -> NemotronAgent:
     return _default_agent
 
 
-def summarize_failure_logs(failure_logs: list[str]) -> str:
+def summarize_failure_logs(
+    failure_logs: list[str],
+    *,
+    use_cache: bool | None = None,
+    fresh: bool | None = None,
+) -> str:
     """Module-level proxy: matches NemotronBridge.summarize_failure_logs signature."""
-    return get_agent().summarize_failure_logs(failure_logs)
+    kwargs: dict[str, Any] = {}
+    if use_cache is not None:
+        kwargs["use_cache"] = use_cache
+    if fresh is not None:
+        kwargs["fresh"] = fresh
+    return get_agent().summarize_failure_logs(failure_logs, **kwargs)
 
 
-def propose_experiments(test_code: str, failure_summary: str) -> list[dict[str, Any]]:
+def propose_experiments(
+    test_code: str,
+    failure_summary: str,
+    *,
+    use_cache: bool | None = None,
+    fresh: bool | None = None,
+) -> list[dict[str, Any]]:
     """Module-level proxy: Stage 2 perturbation ranking."""
-    return get_agent().propose_experiments(test_code, failure_summary)
+    kwargs: dict[str, Any] = {}
+    if use_cache is not None:
+        kwargs["use_cache"] = use_cache
+    if fresh is not None:
+        kwargs["fresh"] = fresh
+    return get_agent().propose_experiments(test_code, failure_summary, **kwargs)
 
 
 def generate_naive_quick_fix(
     test_code: str,
     failure_summary: str,
-) -> tuple[str, str, str]:
+) -> DiagnosisResponse:
     """Module-level proxy: mirrors NemotronBridge.generate_naive_quick_fix."""
     return get_agent().generate_naive_quick_fix(
         test_code=test_code,
@@ -760,17 +980,26 @@ def diagnose_and_propose_fix(
     timeline_profile: dict | None = None,
     ast_audit: dict | None = None,
     fast_live_mode: bool = False,
-) -> tuple[str, str, str]:
-    """Module-level proxy: returns (fix_title, root_cause_diagnosis, patched_code) tuple."""
+    use_cache: bool | None = None,
+    fresh: bool | None = None,
+) -> DiagnosisResponse:
+    """Module-level proxy: returns DiagnosisResponse (3-tuple with fix_source provenance)."""
+    kwargs: dict[str, Any] = {
+        "service_code": service_code,
+        "timeline_profile": timeline_profile,
+        "ast_audit": ast_audit,
+        "fast_live_mode": fast_live_mode,
+    }
+    if use_cache is not None:
+        kwargs["use_cache"] = use_cache
+    if fresh is not None:
+        kwargs["fresh"] = fresh
     return get_agent().diagnose_and_propose_fix(
         test_code=test_code,
         stage1_baseline=stage1_baseline,
         stage2_ledger=stage2_ledger,
         previous_rejected_attempts=previous_rejected_attempts,
-        service_code=service_code,
-        timeline_profile=timeline_profile,
-        ast_audit=ast_audit,
-        fast_live_mode=fast_live_mode,
+        **kwargs,
     )
 
 

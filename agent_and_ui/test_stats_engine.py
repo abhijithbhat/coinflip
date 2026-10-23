@@ -3,11 +3,13 @@
 import pytest
 from agent_and_ui.stats_engine import (
     wilson_ci_95,
+    clopper_pearson_upper_95,
     upper_confidence_bound_95,
     exact_binomial_upper_bound_95,
     evaluate_fix_verdict,
     generate_streak_curve_data,
     fishers_exact_p_value,
+    holm_bonferroni_adjust,
     relative_risk_and_effect,
     wald_sprt_sequential_check,
     enrich_trace_with_advanced_analytics,
@@ -33,22 +35,25 @@ def test_wilson_ci_95_boundaries():
 
 
 def test_upper_confidence_bound_95_rule_of_three():
-    """0 failures in 1,000 runs must return 0.0030 (0.30% Rule of Three)."""
+    """Exact Clopper-Pearson upper bound for k=0 matches Rule of Three asymptotically."""
     assert upper_confidence_bound_95(0, 1000) == 0.0030
-    assert upper_confidence_bound_95(0, 300) == 0.0100
-    assert upper_confidence_bound_95(0, 100) == 0.0300
+    assert upper_confidence_bound_95(0, 300) == 0.0099
+    assert upper_confidence_bound_95(0, 100) == 0.0295
     assert upper_confidence_bound_95(0, 3000) == 0.0010
 
 
 def test_exact_binomial_upper_bound_95():
     """Exact binomial bound for 0/1000 is 1 - 0.05^(1/1000) ~= 0.0030."""
     assert exact_binomial_upper_bound_95(1000) == 0.0030
+    assert exact_binomial_upper_bound_95(0, 1000) == 0.0030
 
 
 def test_upper_confidence_bound_95_nonzero_failures():
-    """When failures > 0, computes one-sided 95% Wilson upper bound."""
-    bound = upper_confidence_bound_95(61, 1000)  # 6.1% failure under stress
-    assert 0.070 <= bound <= 0.076
+    """When failures > 0, computes exact Clopper-Pearson 95% upper bound."""
+    bound = upper_confidence_bound_95(61, 1000)  # 61 failures in 1000 runs
+    assert bound == pytest.approx(0.0749, abs=1e-3)
+    assert exact_binomial_upper_bound_95(61, 1000) == pytest.approx(0.0749, abs=1e-3)
+    assert clopper_pearson_upper_95(61, 1000) == pytest.approx(0.0749, abs=1e-3)
 
 
 def test_evaluate_fix_verdict_states():
@@ -93,7 +98,7 @@ def test_generate_streak_curve_data():
 class TestFishersExactPValue:
     def test_significant_perturbation(self):
         """cpu_heavy_load 28/30 vs baseline 3/30 should yield tiny p-value."""
-        p = fishers_exact_p_value(3, 30, 28, 30)
+        p = fishers_exact_p_value(28, 30, 3, 30)
         assert p < 0.001
 
     def test_equal_rates_returns_1(self):
@@ -102,21 +107,21 @@ class TestFishersExactPValue:
         assert p == 1.0
 
     def test_zero_perturbation_failures_returns_1(self):
-        p = fishers_exact_p_value(10, 100, 0, 100)
+        p = fishers_exact_p_value(0, 100, 10, 100)
         assert p == 1.0
 
     def test_zero_baseline_with_pert_failures(self):
-        p = fishers_exact_p_value(0, 300, 21, 300)
+        p = fishers_exact_p_value(21, 300, 0, 300)
         assert p < 0.01
 
     def test_non_triggering_noise_perturbation(self):
         """22/300 vs 21/300 should yield p > 0.40 (not significant noise)."""
-        p = fishers_exact_p_value(21, 300, 22, 300)
+        p = fishers_exact_p_value(22, 300, 21, 300)
         assert p > 0.40
         assert p == pytest.approx(0.5000, abs=1e-2)
 
     def test_edge_case_zero_runs(self):
-        p = fishers_exact_p_value(0, 0, 5, 100)
+        p = fishers_exact_p_value(5, 100, 0, 0)
         assert p == 1.0
 
 
@@ -127,7 +132,7 @@ class TestFishersExactPValue:
 
 class TestRelativeRiskAndEffect:
     def test_haldane_correction_with_zero_baseline(self):
-        result = relative_risk_and_effect(0, 300, 21, 300)
+        result = relative_risk_and_effect(21, 300, 0, 300)
         assert result["relative_risk"] > 1.0
         assert result["rate_delta"] > 0
         assert result["p_value"] < 0.01
@@ -139,16 +144,47 @@ class TestRelativeRiskAndEffect:
         assert result["rate_delta"] == 0.0
 
     def test_high_pert_rate_significant(self):
-        result = relative_risk_and_effect(3, 30, 28, 30)
+        result = relative_risk_and_effect(28, 30, 3, 30)
         assert result["relative_risk"] >= 1.8
         assert result["is_statistically_significant"] is True
 
     def test_returns_all_expected_keys(self):
-        result = relative_risk_and_effect(10, 100, 20, 100)
+        result = relative_risk_and_effect(20, 100, 10, 100)
         assert "relative_risk" in result
         assert "rate_delta" in result
         assert "p_value" in result
         assert "is_statistically_significant" in result
+
+
+# -------------------------------------------------------------------------------
+# Phase 5: Holm-Bonferroni Adjustment
+# -------------------------------------------------------------------------------
+
+
+class TestHolmBonferroniAdjust:
+    def test_holm_bonferroni_adjustment(self):
+        p_vals = [0.001, 0.04, 0.02]
+        adj = holm_bonferroni_adjust(p_vals)
+        assert len(adj) == 3
+        assert adj[0] == pytest.approx(0.003, abs=1e-4)
+        assert adj[1] == pytest.approx(0.04, abs=1e-4)
+        assert adj[2] == pytest.approx(0.04, abs=1e-4)
+
+    def test_empty_p_values(self):
+        assert holm_bonferroni_adjust([]) == []
+
+    def test_significance_only_when_p_under_001_and_rr_above_18(self):
+        # adj_p < 0.01 and RR >= 1.8 -> True
+        res_sig = relative_risk_and_effect(28, 30, 3, 30, holm_adjusted_p_value=0.005)
+        assert res_sig["is_statistically_significant"] is True
+
+        # adj_p < 0.01 but RR < 1.8 -> False
+        res_low_rr = relative_risk_and_effect(10, 100, 9, 100, holm_adjusted_p_value=0.001)
+        assert res_low_rr["is_statistically_significant"] is False
+
+        # RR >= 1.8 but adj_p >= 0.01 -> False
+        res_high_p = relative_risk_and_effect(2, 30, 0, 30, holm_adjusted_p_value=0.05)
+        assert res_high_p["is_statistically_significant"] is False
 
 
 # -------------------------------------------------------------------------------
@@ -158,38 +194,36 @@ class TestRelativeRiskAndEffect:
 
 class TestWaldSprtSequentialCheck:
     def test_early_reject_with_many_failures(self):
-        result = wald_sprt_sequential_check(failures=10, runs_completed=50, target_runs=1000)
-        assert result["status"] == "EARLY_REJECT"
+        result = wald_sprt_sequential_check(failures=10, runs=50, target_runs=1000)
+        assert result["status"] == "REJECTED_EARLY_STOP"
         assert result["runs_saved"] > 0
         assert result["compute_saved_pct"] > 0
 
-    def test_certified_complete_zero_failures(self):
-        result = wald_sprt_sequential_check(failures=0, runs_completed=1000, target_runs=1000)
-        assert result["status"] == "CERTIFIED_COMPLETE"
-        assert result["runs_saved"] == 0
+    def test_accepted_h0_zero_failures_many_runs(self):
+        result = wald_sprt_sequential_check(failures=0, runs=1000, target_runs=1000)
+        assert result["status"] == "ACCEPTED_H0"
+        assert result["early_stopped"] is True
 
     def test_continue_status_early_in_run(self):
-        result = wald_sprt_sequential_check(failures=0, runs_completed=10, target_runs=1000)
-        assert result["status"] == "CONTINUE"
+        result = wald_sprt_sequential_check(failures=0, runs=10, target_runs=1000)
+        assert result["status"] == "IN_PROGRESS_CONTINUE"
+        assert result["early_stopped"] is False
 
-    def test_zero_runs_returns_continue(self):
-        result = wald_sprt_sequential_check(failures=0, runs_completed=0, target_runs=1000)
-        assert result["status"] == "CONTINUE"
+    def test_in_progress_continue_never_rejected_between_a_and_b(self):
+        result = wald_sprt_sequential_check(failures=1, runs=50, target_runs=1000)
+        assert result["status"] == "IN_PROGRESS_CONTINUE"
+
+    def test_zero_runs_returns_in_progress_continue(self):
+        result = wald_sprt_sequential_check(failures=0, runs=0, target_runs=1000)
+        assert result["status"] == "IN_PROGRESS_CONTINUE"
         assert result["runs_completed"] == 0
 
-    def test_clopper_pearson_early_certification(self):
-        """0 failures at 600+ runs should certify early (UCB = 3/600 = 0.005 <= 0.005)."""
-        result = wald_sprt_sequential_check(failures=0, runs_completed=600, target_runs=1000)
-        assert result["status"] == "CERTIFIED_COMPLETE"
-        assert result["runs_saved"] == 400
-        assert result["compute_saved_pct"] == 40.0
-
     def test_returns_all_expected_keys(self):
-        result = wald_sprt_sequential_check(failures=1, runs_completed=100, target_runs=1000)
+        result = wald_sprt_sequential_check(failures=1, runs=100, target_runs=1000)
         expected_keys = {
             "status", "log_likelihood_ratio", "upper_rejection_bound",
             "lower_acceptance_bound", "runs_completed", "target_runs",
-            "runs_saved", "compute_saved_pct",
+            "runs_saved", "compute_saved_pct", "early_stopped",
         }
         assert expected_keys.issubset(set(result.keys()))
 

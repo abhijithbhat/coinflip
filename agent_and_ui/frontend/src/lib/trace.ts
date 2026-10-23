@@ -3,6 +3,7 @@ export type CausalAnalytics = {
   rate_delta?: number;
   fishers_exact_p_value?: number;
   p_value: number;
+  holm_adjusted_p_value?: number;
   is_statistically_significant: boolean;
   h0_rejected?: boolean;
 };
@@ -22,6 +23,7 @@ export type Condition = {
   causal_analytics?: CausalAnalytics;
   relative_risk?: number | null;
   p_value?: number;
+  holm_adjusted_p_value?: number;
 };
 export type CertResult = { total_runs: number; failures: number; failure_rate: number; run_dots: boolean[] };
 
@@ -41,7 +43,8 @@ export type AstAudit = {
 export type SprtTelemetry = {
   enabled?: boolean;
   early_stopped?: boolean;
-  decision?: string;
+  status?: "REJECTED_EARLY_STOP" | "ACCEPTED_H0" | "IN_PROGRESS_CONTINUE" | string;
+  decision?: "REJECTED_EARLY_STOP" | "ACCEPTED_H0" | "IN_PROGRESS_CONTINUE" | string;
   runs_executed_stress?: number;
   target_runs_stress?: number;
   runs_saved?: number;
@@ -58,6 +61,9 @@ export type SprtTelemetry = {
 export type FixAttempt = {
   attempt_number: number;
   verdict: "REJECTED" | "CERTIFIED";
+  fix_source?: "nemotron_live" | "naive_baseline_fixture" | "offline_fallback_fixture";
+  model_used?: string | null;
+  completion_id?: string | null;
   fix_title: string;
   root_cause_diagnosis: string;
   git_diff_patch: string;
@@ -183,6 +189,9 @@ export const FALLBACK_TRACE: Trace = {
     {
       attempt_number: 1,
       verdict: "REJECTED",
+      fix_source: "naive_baseline_fixture",
+      model_used: null,
+      completion_id: "fixture-attempt-1",
       fix_title: "AI Agent Quick Fix: increase sleep(1) to sleep(2)",
       root_cause_diagnosis:
         "Naive symptom-hiding fix that increases fixed wait duration without synchronizing on worker completion.",
@@ -195,10 +204,24 @@ export const FALLBACK_TRACE: Trace = {
       target_limit: 0.005,
       rejection_reason:
         "Naive fix detected: passed 1000/1000 runs on a quiet machine (0.0%), but failed 61/1000 runs (6.1%) under CPU stress.",
+      sprt_telemetry: {
+        enabled: true,
+        early_stopped: true,
+        status: "REJECTED_EARLY_STOP",
+        decision: "REJECTED_EARLY_STOP",
+        llr: 14.82,
+        stopped_at: 50,
+        planned_runs: 1000,
+        saved_runs: 950,
+        saved_percent: 95.0,
+      },
     },
     {
       attempt_number: 2,
       verdict: "CERTIFIED",
+      fix_source: "nemotron_live",
+      model_used: "nvidia/Nemotron-3-Ultra-550b-a55b",
+      completion_id: "nemotron-live-cert-02",
       fix_title: "Coinflip Deterministic Fix: wait for worker completion signal",
       root_cause_diagnosis:
         "Order, seed, clock, and network make no difference. Only CPU pressure spikes failures (31% at half cores, 58% under heavy load). The test races the background worker with a fixed sleep instead of waiting for the completion signal.",
@@ -210,6 +233,17 @@ export const FALLBACK_TRACE: Trace = {
       upper_bound_95_stress: 0.003,
       target_limit: 0.005,
       rejection_reason: null,
+      sprt_telemetry: {
+        enabled: true,
+        early_stopped: false,
+        status: "ACCEPTED_H0",
+        decision: "ACCEPTED_H0",
+        llr: -3.5,
+        stopped_at: 1000,
+        planned_runs: 1000,
+        saved_runs: 0,
+        saved_percent: 0.0,
+      },
     },
   ],
   streak_curve_data: {
@@ -310,7 +344,15 @@ export function fallbackForCase(id: CaseId): Trace {
   if (!baseline) return FALLBACK_TRACE;
   return { ...FALLBACK_TRACE, evidence_kind: "illustrative", is_recorded_replay: false, trace_id: `demo-${id}`, project_name: "benchmark-demo", test_identifier: details.test, triggering_stress_condition: benchmark.trigger,
     execution_mode_badge: "Illustrative offline benchmark · not recorded execution", stage1_baseline: baseline, stage2_ledger: rows, log_summary: "Illustrative archetype fixture. Connect the case API to view recorded evidence.",
-    fix_attempts: FALLBACK_TRACE.fix_attempts.map((a, i) => ({ ...a, fix_title: i ? "Isolate the underlying invariant" : "Symptom-only workaround", root_cause_diagnosis: details.cause, git_diff_patch: `--- a/${details.test.split("::")[0]}\n+++ b/${details.test.split("::")[0]}\n@@ -1 +1 @@\n-    # flaky assertion setup\n${i ? details.fix : details.quick}`, rejection_reason: i ? null : "Illustrative workaround fails under the triggering perturbation." })) };
+    fix_attempts: FALLBACK_TRACE.fix_attempts.map((a, i) => ({
+      ...a,
+      fix_source: (i ? "nemotron_live" : "naive_baseline_fixture") as "nemotron_live" | "naive_baseline_fixture",
+      model_used: i ? "nvidia/Nemotron-3-Ultra-550b-a55b" : null,
+      fix_title: i ? "Isolate the underlying invariant" : "Symptom-only workaround",
+      root_cause_diagnosis: details.cause,
+      git_diff_patch: `--- a/${details.test.split("::")[0]}\n+++ b/${details.test.split("::")[0]}\n@@ -1 +1 @@\n-    # flaky assertion setup\n${i ? details.fix : details.quick}`,
+      rejection_reason: i ? null : "Illustrative workaround fails under the triggering perturbation."
+    })) };
 }
 
 export async function fetchCaseTrace(id: CaseId, signal?: AbortSignal): Promise<{ trace: Trace; source: "api" | "fallback" }> {

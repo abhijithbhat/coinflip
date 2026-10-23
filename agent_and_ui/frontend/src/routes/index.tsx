@@ -6,7 +6,7 @@ import {
 } from "recharts";
 import { Activity, BadgeCheck, Brain, Cpu, FlaskConical, Loader2, Play, ScrollText, ShieldAlert, ShieldCheck, XCircle } from "lucide-react";
 import { CommandBar, Pipeline, Dots, Diff, CertificateSeal } from "@/components/lab-controls";
-import { CausalLedger, RaceProfiler, GatekeeperAudit, AttestationBlock, useAttestation } from "@/components/scientific-telemetry";
+import { CausalLedger, RaceProfiler, GatekeeperAudit, AttestationBlock, useAttestation, FixSourceBadge } from "@/components/scientific-telemetry";
 import { FALLBACK_TRACE, fetchTrace, fetchCaseTrace, fallbackForCase, makeDots, pct, runLive, type CaseId, type Trace } from "@/lib/trace";
 
 export const Route = createFileRoute("/")({
@@ -170,25 +170,30 @@ function Dashboard() {
                     <th>FAILED / RUNS</th>
                     <th>FAILURE RATE</th>
                     <th>95% WILSON INTERVAL</th>
+                    <th>HOLM ADJ P-VALUE</th>
                     <th>OBSERVATION</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {trace.stage2_ledger.map(c => (
-                    <tr key={c.perturbation} className={c.perturbation === trace.triggering_stress_condition ? "trigger-row" : ""}>
-                      <td>{c.label}<small>{c.perturbation}</small></td>
-                      <td>{c.failures} / {c.total_runs}</td>
-                      <td>{pct(c.failure_rate, 1)}</td>
-                      <td>[{c.ci_95_lower.toFixed(4)}, {c.ci_95_upper.toFixed(4)}]</td>
-                      <td>
-                        {c.perturbation === trace.triggering_stress_condition ? (
-                          <span className="trigger-badge"><span className="status-dot" />TRIGGERING PERTURBATION DETECTED</span>
-                        ) : (
-                          <span className="text-muted-foreground">{c.perturbation.startsWith("cpu") ? "CPU SENSITIVE" : "CONTROL"}</span>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
+                  {trace.stage2_ledger.map(c => {
+                    const holmP = c.causal_analytics?.holm_adjusted_p_value ?? c.holm_adjusted_p_value;
+                    return (
+                      <tr key={c.perturbation} className={c.perturbation === trace.triggering_stress_condition ? "trigger-row" : ""}>
+                        <td>{c.label}<small>{c.perturbation}</small></td>
+                        <td>{c.failures} / {c.total_runs}</td>
+                        <td>{pct(c.failure_rate, 1)}</td>
+                        <td>[{c.ci_95_lower.toFixed(4)}, {c.ci_95_upper.toFixed(4)}]</td>
+                        <td className="font-mono text-xs">{holmP !== undefined ? (holmP < 0.0001 ? "< 0.0001" : holmP.toFixed(4)) : "—"}</td>
+                        <td>
+                          {c.perturbation === trace.triggering_stress_condition ? (
+                            <span className="trigger-badge"><span className="status-dot" />TRIGGERING PERTURBATION DETECTED</span>
+                          ) : (
+                            <span className="text-muted-foreground">{c.perturbation.startsWith("cpu") ? "CPU SENSITIVE" : "CONTROL"}</span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -259,7 +264,10 @@ function Dashboard() {
           {[a1, a2].map((a) => (
             <div key={a.attempt_number} className={`fix-item space-y-4 ${a.verdict === "CERTIFIED" ? "fix-certified" : "fix-rejected"}`}><div className={`arena-stamp ${a.verdict === "CERTIFIED" ? "text-pass" : "text-fail"}`}>{a.verdict === "CERTIFIED" ? `CERTIFIED (< ${pct(a.upper_bound_95_stress, 2)} BOUND)` : "REJECTED UNDER STRESS"}</div><div className="flex justify-between gap-4 border-b border-border pb-4 font-mono"><div><span className="text-[10px] text-muted-foreground">QUIET MACHINE</span><p className="text-2xl text-pass">{pct(a.normal_cert_result.failure_rate)}<span className="ml-2 text-xs text-muted-foreground">{a.normal_cert_result.failures}/{fmtN(a.normal_cert_result.total_runs)}</span></p></div><div><span className="text-[10px] text-muted-foreground">TRIGGER CONDITION</span><p className={`text-2xl ${a.verdict === "CERTIFIED" ? "text-pass" : "text-fail"}`}>{pct(a.stress_cert_result.failure_rate)}<span className="ml-2 text-xs text-muted-foreground">{a.stress_cert_result.failures}/{fmtN(a.stress_cert_result.total_runs)}</span></p></div></div>
               <div className="flex items-center justify-between gap-2">
-                <h3 className="text-sm font-semibold">Attempt {a.attempt_number} · {a.fix_title}</h3>
+                <div className="space-y-1">
+                  <h3 className="text-sm font-semibold">Attempt {a.attempt_number} · {a.fix_title}</h3>
+                  <FixSourceBadge source={a.fix_source} fallbackVerdict={a.verdict} />
+                </div>
                 <Verdict v={a.verdict} />
               </div>
               <Diff patch={a.git_diff_patch} />
@@ -302,6 +310,7 @@ function Dashboard() {
           <Field k="95% Confidence Upper Bound" v={<><span className="text-pass">&lt; {pct(a2.upper_bound_95_stress, 2)}</span> <span className="text-xs text-muted-foreground">(Rule of Three) vs {pct(a2.target_limit, 2)} target</span></>} />
           <Field k="Models Used" v={<span className="text-xs">{trace.models_used.bulk_log_reading}<br />{trace.models_used.deep_reasoning}</span>} />
           <Field k="Execution Backend" v={base.execution_backend} />
+          <Field k="Attestation" v={<span className="text-primary font-bold">SHA-256 Merkle & HMAC Attested</span>} />
         </dl>
         <div className="formula-band"><span className="font-mono text-[10px] text-muted-foreground">RULE OF THREE / 95% CONFIDENCE</span><p className="font-mono">Upper Bound = 3 / N = {pct(3 / a2.stress_cert_result.total_runs, 2)}<span className="text-muted-foreground"> · N = {fmtN(a2.stress_cert_result.total_runs)}</span></p></div>
         <AttestationBlock trace={trace} seal={attestation} />

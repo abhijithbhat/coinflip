@@ -36,6 +36,12 @@ async function main() {
     fs.writeFileSync(path.join(publicDir, "index.html"), html, "utf8");
   }
 
+  // 5. Clean up any build generator artifacts
+  const wranglerDir = path.join(rootDir, ".wrangler");
+  if (fs.existsSync(wranglerDir)) {
+    fs.rmSync(wranglerDir, { recursive: true, force: true });
+  }
+
   console.log("Prerender & asset sync completed successfully.");
 }
 

@@ -147,26 +147,14 @@ class TestStreakCurveEndpoint:
 
 
 class TestRunLiveEndpoint:
-    def test_run_live_fallback_on_subprocess_error(self):
-        """When local Windows worker / subprocess fails, must gracefully return hero trace."""
+    def test_run_live_error_raises_503(self):
+        """When local Windows worker / subprocess fails, must raise 503 instead of silent fallback."""
         with patch("sandbox_engine.orchestrator.CoinflipOrchestrator.run", side_effect=RuntimeError("ProcessPool worker failed")):
             response = client.post("/api/run-live")
-            assert response.status_code == 200
-            data = response.json()
+            assert response.status_code == 503
+            assert "Live execution unavailable" in response.json()["detail"]
 
-            # Graceful fallback indicators
-            assert data.get("is_fallback") is True
-            assert "fallback_note" in data
-            assert "Live run subprocess encountered an issue" in data["fallback_note"]
-
-            # Valid trace structure is preserved so the UI never crashes
-            assert "trace_id" in data
-            assert "stage1_baseline" in data
-            assert "stage2_ledger" in data
-            assert "streak_curve_data" in data
-            assert "Subprocess Fallback" in data["execution_mode_badge"]
-
-    def test_run_live_with_custom_payload_still_graceful(self):
+    def test_run_live_with_custom_payload_error_raises_503(self):
         payload = {
             "runs_per_condition": 20,
             "project_name": "test-service",
@@ -174,11 +162,8 @@ class TestRunLiveEndpoint:
         }
         with patch("sandbox_engine.orchestrator.CoinflipOrchestrator.run", side_effect=FileNotFoundError("test_fake.py not found")):
             response = client.post("/api/run-live", json=payload)
-            assert response.status_code == 200
-            data = response.json()
-            assert data.get("is_fallback") is True
-            assert "trace_id" in data
-            assert "FileNotFoundError" in data["fallback_note"]
+            assert response.status_code == 503
+            assert "Live execution unavailable" in response.json()["detail"]
 
     def test_run_live_success_mock(self):
         """When CoinflipOrchestrator succeeds, returns live trace with is_fallback=False."""
@@ -446,6 +431,7 @@ class TestVerifyAttestationEndpoint:
         # Minimal trace payload
         trace = {
             "trace_id": "test_verify_123",
+            "execution_mode": "live_custom",
             "stage1_baseline": {
                 "perturbation": "baseline",
                 "total_runs": 100,
@@ -461,4 +447,70 @@ class TestVerifyAttestationEndpoint:
         data = response.json()
         assert data["verified"] is True
         assert data["algorithm"] == "SHA-256-Merkle"
+
+    def test_verify_attestation_tampered_failures_999(self):
+        """Submitting a trace with tampered failures: 999 returns verified: False with HTTP 200."""
+        response = client.get("/api/traces/hero")
+        assert response.status_code == 200
+        hero_data = response.json()
+
+        # Tamper with failures: 999
+        hero_data["stage1_baseline"]["failures"] = 999
+
+        resp = client.post("/api/verify-attestation", json={"trace": hero_data})
+        assert resp.status_code == 200
+        result = resp.json()
+        assert result["verified"] is False
+        assert "Tampering detected" in result["reason"]
+
+    def test_verify_attestation_tampered_custom_trace_failures_999(self):
+        """Submitting a custom trace with tampered failures: 999 returns verified: False with HTTP 200."""
+        trace = {
+            "trace_id": "test_verify_tampered",
+            "execution_mode": "live_custom",
+            "stage1_baseline": {
+                "perturbation": "baseline",
+                "total_runs": 100,
+                "failures": 999,
+                "passes": 95,
+            },
+            "stage2_ledger": [],
+            "fix_attempts": [],
+            "final_verdict": "NOT_YET_CERTIFIED",
+        }
+        resp = client.post("/api/verify-attestation", json={"trace": trace})
+        assert resp.status_code == 200
+        result = resp.json()
+        assert result["verified"] is False
+        assert "Tampering detected" in result["reason"]
+
+
+class TestStreamLiveEndpoint:
+    def test_stream_live_pipeline_progress(self):
+        async def fake_pipeline(*args, **kwargs):
+            on_event = kwargs.get("on_stage_event")
+            if on_event:
+                on_event("stage1_measure", {"stage": 1, "status": "running"})
+                on_event("stage4_1000_certified", {"stage": 4, "status": "certified"})
+
+        with patch("sandbox_engine.orchestrator.CoinflipOrchestrator.run_full_pipeline", side_effect=fake_pipeline):
+            resp = client.get("/api/stream-live")
+            assert resp.status_code == 200
+            assert "text/event-stream" in resp.headers["content-type"]
+            text = resp.text
+            assert "stage1_measure" in text
+            assert "stage4_1000_certified" in text
+
+
+class TestBuiltinProfilesDynamic:
+    def test_builtin_profiles_have_dynamic_metrics(self):
+        from agent_and_ui.app import BUILTIN_PROFILES
+        for case in ("hero", "order_pollution", "seed_sampling", "clock_expiry", "async_queue_race"):
+            assert case in BUILTIN_PROFILES
+            prof = BUILTIN_PROFILES[case]
+            assert "baseline_failures" in prof
+            assert "baseline_runs" in prof
+            assert "stress_failures" in prof
+            assert prof["baseline_runs"] > 0
+
 

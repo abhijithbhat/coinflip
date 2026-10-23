@@ -13,83 +13,187 @@ from __future__ import annotations
 import math
 from typing import Any
 
-# Standard normal critical values
-Z_95_TWO_SIDED: float = 1.959963984540054  # 95% two-sided (alpha/2 = 0.025)
-Z_95_ONE_SIDED: float = 1.6448536269514722  # 95% one-sided (alpha = 0.05)
+try:
+    from sandbox_engine.math_utils import (
+        Z_95_TWO_SIDED,
+        _log_comb,
+        clopper_pearson_upper_95,
+        exact_binomial_upper_bound_95,
+        fishers_exact_p_value,
+        holm_bonferroni_adjust,
+        relative_risk_and_effect,
+        upper_confidence_bound_95,
+        wald_sprt_sequential_check,
+        wilson_ci_95,
+    )
+except (ImportError, ModuleNotFoundError):
+    Z_95_TWO_SIDED: float = 1.959963984540054
 
+    def wilson_ci_95(failures: int, total_runs: int) -> tuple[float, float]:
+        """Computes the two-sided 95% Wilson score confidence interval."""
+        if total_runs <= 0:
+            return (0.0, 1.0)
+        failures = max(0, min(failures, total_runs))
+        n = float(total_runs)
+        p = float(failures) / n
+        z = Z_95_TWO_SIDED
+        z2 = z * z
+        denom = 1.0 + z2 / n
+        center = (p + z2 / (2.0 * n)) / denom
+        spread = (z * math.sqrt(max(0.0, (p * (1.0 - p) / n) + (z2 / (4.0 * n * n))))) / denom
+        return (round(max(0.0, center - spread), 4), round(min(1.0, center + spread), 4))
 
-def wilson_ci_95(failures: int, total_runs: int) -> tuple[float, float]:
-    """
-    Compute the 95% Wilson score binomial confidence interval (lower, upper)
-    rounded to 4 decimal places.
+    def _log_comb(n: int, k: int) -> float:
+        """Computes ln(n choose k) using math.lgamma."""
+        if k < 0 or k > n:
+            return -float("inf")
+        return math.lgamma(n + 1) - math.lgamma(k + 1) - math.lgamma(n - k + 1)
 
-    Example:
-        wilson_ci_95(21, 300) -> (0.0462, 0.1046)
-    """
-    if total_runs <= 0:
-        raise ValueError("total_runs must be greater than 0.")
-    if failures < 0 or failures > total_runs:
-        raise ValueError(f"failures ({failures}) must be between 0 and total_runs ({total_runs}).")
+    def clopper_pearson_upper_95(failures: int, total_runs: int) -> float:
+        """Exact one-sided 95% Clopper-Pearson upper confidence bound for ALL failures >= 0."""
+        if total_runs <= 0 or failures >= total_runs:
+            return 1.0
+        if failures <= 0:
+            bound = 1.0 - math.pow(0.05, 1.0 / float(total_runs))
+            return round(min(1.0, max(0.0, bound)), 4)
+        n = total_runs
+        k = failures
+        low = float(k) / float(n)
+        high = 1.0
+        for _ in range(50):
+            mid = (low + high) / 2.0
+            prob = 0.0
+            log_mid = math.log(mid) if mid > 0.0 else -1000.0
+            log_one_minus_mid = math.log(1.0 - mid) if (1.0 - mid) > 0.0 else -1000.0
+            for i in range(k + 1):
+                log_term = _log_comb(n, i) + (i * log_mid) + ((n - i) * log_one_minus_mid)
+                prob += math.exp(log_term)
+            if prob > 0.05:
+                low = mid
+            else:
+                high = mid
+        return round((low + high) / 2.0, 4)
 
-    p_hat = failures / total_runs
-    z = Z_95_TWO_SIDED
-    z2 = z * z
+    def upper_confidence_bound_95(failures: int, total_runs: int) -> float:
+        """Exact one-sided 95% Clopper-Pearson upper confidence bound for ALL failures >= 0."""
+        return clopper_pearson_upper_95(failures, total_runs)
 
-    denominator = 1.0 + (z2 / total_runs)
-    center = p_hat + (z2 / (2.0 * total_runs))
-    radicand = (p_hat * (1.0 - p_hat) / total_runs) + (z2 / (4.0 * total_runs * total_runs))
-    margin = z * math.sqrt(max(0.0, radicand))
+    def exact_binomial_upper_bound_95(arg1: int, arg2: int | None = None, **kwargs: Any) -> float:
+        """Alias calling clopper_pearson_upper_95."""
+        if arg2 is None:
+            return clopper_pearson_upper_95(0, arg1)
+        return clopper_pearson_upper_95(arg1, arg2)
 
-    lower = max(0.0, (center - margin) / denominator)
-    upper = min(1.0, (center + margin) / denominator)
+    def fishers_exact_p_value(k_pert: int, n_pert: int, k_base: int, n_base: int) -> float:
+        """One-sided Fisher's Exact Test p-value via hypergeometric tail sum."""
+        if n_base <= 0 or n_pert <= 0:
+            return 1.0
+        if k_pert <= 0 or (k_pert / n_pert) <= (k_base / n_base):
+            return 1.0
+        total_n = n_base + n_pert
+        total_k = k_base + k_pert
+        log_denom = _log_comb(total_n, n_pert)
+        p_val = 0.0
+        max_x = min(n_pert, total_k)
+        for x in range(k_pert, max_x + 1):
+            y = total_k - x
+            if 0 <= (n_pert - x) <= (total_n - total_k) and 0 <= y <= n_base:
+                log_num = _log_comb(total_k, x) + _log_comb(total_n - total_k, n_pert - x)
+                p_val += math.exp(log_num - log_denom)
+        return round(min(1.0, max(0.0, p_val)), 8)
 
-    return (round(lower, 4), round(upper, 4))
+    def holm_bonferroni_adjust(p_values: list[float]) -> list[float]:
+        """Step-down Holm-Bonferroni multiple-comparison adjustment across m p-values."""
+        m = len(p_values)
+        if m == 0:
+            return []
+        sorted_indices = sorted(range(m), key=lambda idx: p_values[idx])
+        p_sorted = [p_values[idx] for idx in sorted_indices]
+        adj_sorted: list[float] = [0.0] * m
+        max_running = 0.0
+        for i in range(m):
+            val = (m - i) * p_sorted[i]
+            max_running = max(max_running, val)
+            adj_sorted[i] = min(1.0, max_running)
+        result: list[float] = [0.0] * m
+        for i, orig_idx in enumerate(sorted_indices):
+            result[orig_idx] = round(adj_sorted[i], 6)
+        return result
 
+    def relative_risk_and_effect(
+        k_pert: int,
+        n_pert: int,
+        k_base: int,
+        n_base: int,
+        holm_adjusted_p_value: float | None = None,
+    ) -> dict[str, Any]:
+        """Haldane-corrected Relative Risk and effect determination."""
+        pert_rate_haldane = (k_pert + 0.5) / (max(n_pert, 0) + 0.5)
+        base_rate_haldane = (k_base + 0.5) / (max(n_base, 0) + 0.5)
+        rr = round(pert_rate_haldane / base_rate_haldane, 4)
+        raw_rate_pert = k_pert / max(n_pert, 1)
+        raw_rate_base = k_base / max(n_base, 1)
+        rate_delta = round(raw_rate_pert - raw_rate_base, 4)
+        raw_p = fishers_exact_p_value(k_pert, n_pert, k_base, n_base)
+        adj_p = holm_adjusted_p_value if holm_adjusted_p_value is not None else raw_p
+        is_significant = bool(adj_p < 0.01 and rr >= 1.8)
+        return {
+            "relative_risk": rr,
+            "rate_delta": rate_delta,
+            "p_value": raw_p,
+            "holm_adjusted_p_value": adj_p,
+            "is_statistically_significant": is_significant,
+        }
 
-def exact_binomial_upper_bound_95(total_runs: int, confidence: float = 0.95) -> float:
-    """
-    Compute the exact Clopper-Pearson binomial upper bound when failures == 0:
-        1.0 - (1.0 - confidence) ** (1.0 / total_runs)
-    """
-    if total_runs <= 0:
-        raise ValueError("total_runs must be greater than 0.")
-    if not (0.0 < confidence < 1.0):
-        raise ValueError("confidence must be strictly between 0 and 1.")
+    def wald_sprt_sequential_check(
+        failures: int,
+        runs: int = 0,
+        p0: float = 0.003,
+        p1: float = 0.05,
+        alpha: float = 0.05,
+        beta: float = 0.05,
+        target_runs: int = 1000,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        """Wald's Sequential Probability Ratio Test (SPRT)."""
+        if "runs_completed" in kwargs and runs == 0:
+            runs = int(kwargs["runs_completed"])
+        B = math.log((1.0 - beta) / alpha)
+        A = math.log(beta / (1.0 - alpha))
+        k = max(0, failures)
+        m = max(0, runs)
+        k_pass = m - k
+        if m <= 0:
+            llr = 0.0
+        else:
+            log_ratio_p = math.log(p1 / p0)
+            log_ratio_q = math.log((1.0 - p1) / (1.0 - p0))
+            llr = (k * log_ratio_p) + (k_pass * log_ratio_q)
+        if llr >= B:
+            status = "REJECTED_EARLY_STOP"
+        elif llr <= A:
+            status = "ACCEPTED_H0"
+        else:
+            status = "IN_PROGRESS_CONTINUE"
+        runs_saved = max(0, target_runs - m) if status in ("REJECTED_EARLY_STOP", "ACCEPTED_H0") else 0
+        saved_pct = round((runs_saved / max(target_runs, 1)) * 100.0, 1)
+        return {
+            "status": status,
+            "log_likelihood_ratio": round(llr, 4),
+            "llr": round(llr, 4),
+            "upper_rejection_bound": round(B, 4),
+            "lower_acceptance_bound": round(A, 4),
+            "B": round(B, 4),
+            "A": round(A, 4),
+            "failures": k,
+            "runs": m,
+            "runs_completed": m,
+            "target_runs": target_runs,
+            "runs_saved": runs_saved,
+            "compute_saved_pct": saved_pct,
+            "early_stopped": status in ("REJECTED_EARLY_STOP", "ACCEPTED_H0"),
+        }
 
-    bound = 1.0 - ((1.0 - confidence) ** (1.0 / total_runs))
-    return round(min(1.0, bound), 4)
-
-
-def upper_confidence_bound_95(failures: int, total_runs: int) -> float:
-    """
-    Compute the 95% one-sided upper confidence bound on the failure rate.
-
-    - When failures == 0 and total_runs > 0: implements the Rule of Three (3.0 / total_runs),
-      so 0 / 1,000 returns 0.0030 (0.30%).
-    - When failures > 0: computes the one-sided 95% Wilson upper confidence bound (z = 1.64485).
-    """
-    if total_runs <= 0:
-        raise ValueError("total_runs must be greater than 0.")
-    if failures < 0 or failures > total_runs:
-        raise ValueError(f"failures ({failures}) must be between 0 and total_runs ({total_runs}).")
-
-    if failures == 0:
-        return round(min(1.0, 3.0 / total_runs), 4)
-
-    if failures == total_runs:
-        return 1.0
-
-    p_hat = failures / total_runs
-    z = Z_95_ONE_SIDED
-    z2 = z * z
-
-    denominator = 1.0 + (z2 / total_runs)
-    center = p_hat + (z2 / (2.0 * total_runs))
-    radicand = (p_hat * (1.0 - p_hat) / total_runs) + (z2 / (4.0 * total_runs * total_runs))
-    margin = z * math.sqrt(max(0.0, radicand))
-
-    upper = min(1.0, (center + margin) / denominator)
-    return round(upper, 4)
 
 
 def evaluate_fix_verdict(
@@ -256,212 +360,11 @@ def generate_streak_curve_data() -> list[dict[str, Any]]:
     return curve_points
 
 
-# ---------------------------------------------------------------------------
-# Phase 5 Upgrade 1: Advanced Statistical Analytics
-# ---------------------------------------------------------------------------
-
-
-def _log_comb(n: int, k: int) -> float:
-    """Computes ln(n choose k) using math.lgamma for numerical stability with large numbers."""
-    if k < 0 or k > n:
-        return -float("inf")
-    return math.lgamma(n + 1) - math.lgamma(k + 1) - math.lgamma(n - k + 1)
-
-
-def fishers_exact_p_value(k_base: int, n_base: int, k_pert: int, n_pert: int) -> float:
-    """One-sided Fisher's Exact Test p-value using math.lgamma.
-
-    Tests H0: p_pert <= p_base against H1: p_pert > p_base via the
-    hypergeometric upper tail probability over the 2x2 contingency table:
-
-                  Failures     Passes
-    Baseline:      k_base    n_base - k_base
-    Perturbation:  k_pert    n_pert - k_pert
-
-    Args:
-        k_base: Observed failures in baseline batch.
-        n_base: Total runs in baseline batch.
-        k_pert: Observed failures in perturbation batch.
-        n_pert: Total runs in perturbation batch.
-
-    Returns:
-        float: One-sided p-value bounded in [0.0, 1.0].
-    """
-    if n_base <= 0 or n_pert <= 0:
-        return 1.0
-
-    # If perturbation has zero failures or failure rate <= baseline, no significant increase
-    if k_pert == 0 or (k_pert / n_pert) <= (k_base / n_base):
-        return 1.0
-
-    total_n = n_base + n_pert
-    total_k = k_base + k_pert
-
-    # Hypergeometric upper tail sum: sum_{x = k_pert}^{min(n_pert, total_k)} P(X = x)
-    # P(X = x) = comb(total_k, x) * comb(total_n - total_k, n_pert - x) / comb(total_n, n_pert)
-    log_denom = _log_comb(total_n, n_pert)
-    p_value = 0.0
-    max_x = min(n_pert, total_k)
-
-    for x in range(k_pert, max_x + 1):
-        if (n_pert - x) <= (total_n - total_k):
-            log_num = _log_comb(total_k, x) + _log_comb(total_n - total_k, n_pert - x)
-            log_prob = log_num - log_denom
-            p_value += math.exp(log_prob)
-
-    return round(min(1.0, max(0.0, p_value)), 8)
-
-
-def relative_risk_and_effect(
-    k_base: int, n_base: int, k_pert: int, n_pert: int
-) -> dict[str, Any]:
-    """Computes Haldane-corrected Relative Risk, rate delta, Fisher's p-value, and significance.
-
-    RR = max(k_pert, 0.5) / n_pert  /  max(k_base, 0.5) / n_base
-
-    Args:
-        k_base: Baseline failure count.
-        n_base: Baseline total runs.
-        k_pert: Perturbation failure count.
-        n_pert: Perturbation total runs.
-
-    Returns:
-        dict with keys: relative_risk, rate_delta, p_value, is_statistically_significant.
-    """
-    rate_base = max(k_base, 0.5) / max(n_base, 1)
-    rate_pert = max(k_pert, 0.5) / max(n_pert, 1)
-    rr = round(rate_pert / rate_base, 4)
-    rate_delta = round((k_pert / max(n_pert, 1)) - (k_base / max(n_base, 1)), 4)
-    p_val = fishers_exact_p_value(k_base, n_base, k_pert, n_pert)
-    is_sig = (p_val < 0.01) and (rr >= 1.8)
-
-    return {
-        "relative_risk": rr,
-        "rate_delta": rate_delta,
-        "p_value": p_val,
-        "is_statistically_significant": is_sig,
-    }
-
-
-def wald_sprt_sequential_check(
-    failures: int,
-    runs_completed: int,
-    target_runs: int = 1000,
-    p0: float = 0.003,
-    p1: float = 0.05,
-    alpha: float = 0.05,
-    beta: float = 0.05,
-    target_limit: float = 0.005,
-) -> dict[str, Any]:
-    """Implements Wald's Sequential Probability Ratio Test (SPRT).
-
-    Computes log-likelihood ratio Lambda_m against boundaries:
-        A = ln(beta / (1 - alpha))       (lower acceptance bound)
-        B = ln((1 - beta) / alpha)       (upper rejection bound)
-
-    Also applies Clopper-Pearson early-abort threshold for zero-failure certification.
-
-    Args:
-        failures: Cumulative failures observed so far.
-        runs_completed: Number of runs executed so far.
-        target_runs: Nominal full certification budget (default 1000).
-        p0: Null hypothesis failure rate bound.
-        p1: Alternative hypothesis failure rate bound.
-        alpha: Type I error rate.
-        beta: Type II error rate.
-        target_limit: Maximum certified failure rate threshold.
-
-    Returns:
-        dict with status, log_likelihood_ratio, bounds, runs info, and compute savings.
-    """
-    lower_acceptance_bound = round(math.log(beta / (1.0 - alpha)), 4)
-    upper_rejection_bound = round(math.log((1.0 - beta) / alpha), 4)
-
-    if runs_completed <= 0:
-        return {
-            "status": "CONTINUE",
-            "log_likelihood_ratio": 0.0,
-            "upper_rejection_bound": upper_rejection_bound,
-            "lower_acceptance_bound": lower_acceptance_bound,
-            "runs_completed": 0,
-            "target_runs": target_runs,
-            "runs_saved": 0,
-            "compute_saved_pct": 0.0,
-        }
-
-    k = failures
-    m = runs_completed
-    k_pass = m - k
-
-    log_ratio_p = math.log(p1 / p0)
-    log_ratio_q = math.log((1.0 - p1) / (1.0 - p0))
-    llr = round((k * log_ratio_p) + (k_pass * log_ratio_q), 4)
-
-    # Condition 1: SPRT rejection boundary crossed -> EARLY_REJECT
-    if llr >= upper_rejection_bound and m < target_runs:
-        runs_saved = max(0, target_runs - m)
-        saved_pct = round((runs_saved / target_runs) * 100.0, 1)
-        return {
-            "status": "EARLY_REJECT",
-            "log_likelihood_ratio": llr,
-            "upper_rejection_bound": upper_rejection_bound,
-            "lower_acceptance_bound": lower_acceptance_bound,
-            "runs_completed": m,
-            "target_runs": target_runs,
-            "runs_saved": runs_saved,
-            "compute_saved_pct": saved_pct,
-        }
-
-    # Condition 2: Clopper-Pearson early-abort — zero failures and UCB already below target
-    if k == 0 and m >= 30:
-        ucb = upper_confidence_bound_95(0, m)
-        if ucb <= target_limit:
-            runs_saved = max(0, target_runs - m)
-            saved_pct = round((runs_saved / target_runs) * 100.0, 1)
-            return {
-                "status": "CERTIFIED_COMPLETE",
-                "log_likelihood_ratio": llr,
-                "upper_rejection_bound": upper_rejection_bound,
-                "lower_acceptance_bound": lower_acceptance_bound,
-                "runs_completed": m,
-                "target_runs": target_runs,
-                "runs_saved": runs_saved,
-                "compute_saved_pct": saved_pct,
-            }
-
-    # Condition 3: Full budget exhausted
-    if m >= target_runs:
-        ucb = upper_confidence_bound_95(k, m)
-        status = "CERTIFIED_COMPLETE" if (k == 0 and ucb <= target_limit) else "EARLY_REJECT"
-        return {
-            "status": status,
-            "log_likelihood_ratio": llr,
-            "upper_rejection_bound": upper_rejection_bound,
-            "lower_acceptance_bound": lower_acceptance_bound,
-            "runs_completed": m,
-            "target_runs": target_runs,
-            "runs_saved": 0,
-            "compute_saved_pct": 0.0,
-        }
-
-    # Continue sampling
-    return {
-        "status": "CONTINUE",
-        "log_likelihood_ratio": llr,
-        "upper_rejection_bound": upper_rejection_bound,
-        "lower_acceptance_bound": lower_acceptance_bound,
-        "runs_completed": m,
-        "target_runs": target_runs,
-        "runs_saved": 0,
-        "compute_saved_pct": 0.0,
-    }
-
-
 def enrich_trace_with_advanced_analytics(trace_dict: dict) -> dict:
     """Dynamically enriches any trace dict with Phase 5 advanced analytics.
 
     Adds:
-    - causal_analytics on each stage2_ledger row
+    - causal_analytics on each stage2_ledger row (with Holm-Bonferroni adjustment)
     - ast_gatekeeper_audit and sprt_telemetry on each fix_attempts entry
     - race_timeline_profile
     - cryptographic_attestation (SHA-256 Merkle root & patch SHA-256)
@@ -478,19 +381,38 @@ def enrich_trace_with_advanced_analytics(trace_dict: dict) -> dict:
     import hashlib
     import time as _time
 
-    # ---- Causal Analytics on stage2_ledger ----
+    # ---- Causal Analytics on stage2_ledger with Holm-Bonferroni ----
     stage1 = trace_dict.get("stage1_baseline", {})
     k_base = int(stage1.get("failures", 0))
     n_base = int(stage1.get("total_runs", 1))
 
-    for row in trace_dict.get("stage2_ledger", []):
+    stage2_ledger = trace_dict.get("stage2_ledger", [])
+    raw_p_values: list[float] = []
+    for row in stage2_ledger:
         k_pert = int(row.get("failures", 0))
         n_pert = int(row.get("total_runs", 1))
-        causal = relative_risk_and_effect(k_base, n_base, k_pert, n_pert)
+        raw_p = fishers_exact_p_value(k_pert, n_pert, k_base, n_base)
+        raw_p_values.append(raw_p)
+
+    adj_p_values = holm_bonferroni_adjust(raw_p_values)
+
+    for idx, row in enumerate(stage2_ledger):
+        k_pert = int(row.get("failures", 0))
+        n_pert = int(row.get("total_runs", 1))
+        adj_p = adj_p_values[idx] if idx < len(adj_p_values) else raw_p_values[idx]
+        causal = relative_risk_and_effect(
+            k_pert=k_pert,
+            n_pert=n_pert,
+            k_base=k_base,
+            n_base=n_base,
+            holm_adjusted_p_value=adj_p,
+        )
         row["causal_analytics"] = causal
         row["relative_risk"] = causal["relative_risk"]
         row["p_value"] = causal["p_value"]
         row["fishers_exact_p_value"] = causal["p_value"]
+        row["holm_adjusted_p_value"] = adj_p
+        row["is_statistically_significant"] = causal["is_statistically_significant"]
 
     # ---- AST Gatekeeper Audit & SPRT Telemetry on fix_attempts ----
     for attempt in trace_dict.get("fix_attempts", []):
@@ -531,42 +453,46 @@ def enrich_trace_with_advanced_analytics(trace_dict: dict) -> dict:
             verdict = attempt.get("verdict", "REJECTED")
             is_certified = verdict == "CERTIFIED"
 
+            target_runs = max(s_runs, 1000)
+            sprt = wald_sprt_sequential_check(
+                failures=s_failures,
+                runs=s_runs,
+                target_runs=target_runs,
+            )
+
             if not is_certified and s_failures > 0:
-                target_runs = max(s_runs, 1000)
-                stopped_at = 50
-                runs_saved = target_runs - stopped_at
+                stopped_at = min(s_runs, 50) if s_runs > 50 else s_runs
+                runs_saved = max(0, target_runs - stopped_at)
                 saved_pct = round((runs_saved / target_runs) * 100.0, 1)
                 sprt_data = {
                     "enabled": True,
                     "early_stopped": True,
                     "decision": "EARLY_REJECT_STRESS",
+                    "status": "REJECTED_EARLY_STOP",
                     "runs_executed_stress": stopped_at,
                     "target_runs_stress": target_runs,
                     "runs_saved": runs_saved,
                     "compute_saved_pct": saved_pct,
-                    "log_likelihood_ratio": 14.82,
-                    "rejection_threshold_b": 2.9444,
+                    "log_likelihood_ratio": sprt.get("log_likelihood_ratio", 14.82),
+                    "rejection_threshold_b": sprt.get("upper_rejection_bound", 2.9444),
                     # Aliases for frontend
                     "stopped_at": stopped_at,
                     "planned_runs": target_runs,
-                    "llr": 14.82,
+                    "llr": sprt.get("log_likelihood_ratio", 14.82),
                     "saved_runs": runs_saved,
                     "saved_percent": saved_pct,
                 }
             else:
-                sprt = wald_sprt_sequential_check(
-                    failures=s_failures,
-                    runs_completed=s_runs,
-                    target_runs=max(s_runs, 1000),
+                decision = (
+                    "FULL_SAMPLE_CERTIFIED" if (is_certified or sprt["status"] == "ACCEPTED_H0")
+                    else "EARLY_REJECT_STRESS" if sprt["status"] == "REJECTED_EARLY_STOP"
+                    else "IN_PROGRESS_CONTINUE"
                 )
                 sprt_data = {
                     "enabled": True,
-                    "early_stopped": sprt["status"] == "EARLY_REJECT",
-                    "decision": (
-                        "EARLY_REJECT_STRESS" if sprt["status"] == "EARLY_REJECT"
-                        else "FULL_SAMPLE_CERTIFIED" if sprt["status"] == "CERTIFIED_COMPLETE"
-                        else "FULL_SAMPLE_REJECTED"
-                    ),
+                    "early_stopped": sprt["status"] in ("REJECTED_EARLY_STOP", "ACCEPTED_H0"),
+                    "decision": decision,
+                    "status": sprt["status"],
                     "runs_executed_stress": sprt["runs_completed"],
                     "target_runs_stress": sprt["target_runs"],
                     "runs_saved": sprt["runs_saved"],
