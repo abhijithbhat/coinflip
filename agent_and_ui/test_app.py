@@ -14,7 +14,6 @@ Tests:
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -23,7 +22,6 @@ from fastapi.testclient import TestClient
 from agent_and_ui.app import HERO_BADGE, app
 from shared_contracts.schemas import (
     BatchExperimentResult,
-    CandidateFixEvaluation,
     CoinflipCertificateTrace,
     PerturbationType,
 )
@@ -485,7 +483,7 @@ class TestVerifyAttestationEndpoint:
         assert "Tampering detected" in result["reason"]
 
 
-class TestStreamLiveEndpoint:
+class TestStreamLivePipelineProgress:
     def test_stream_live_pipeline_progress(self):
         async def fake_pipeline(*args, **kwargs):
             on_event = kwargs.get("on_stage_event")

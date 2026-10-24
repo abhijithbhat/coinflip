@@ -379,7 +379,6 @@ def enrich_trace_with_advanced_analytics(trace_dict: dict) -> dict:
         dict: The enriched trace dictionary (mutated in place and also returned).
     """
     import hashlib
-    import time as _time
 
     # ---- Causal Analytics on stage2_ledger with Holm-Bonferroni ----
     stage1 = trace_dict.get("stage1_baseline", {})

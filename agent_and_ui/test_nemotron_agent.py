@@ -18,7 +18,6 @@ I. Live smoke test: calls Nebius Token Factory with Nemotron-3_5-Lightning (skip
 from __future__ import annotations
 
 import os
-import types
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -30,13 +29,10 @@ from agent_and_ui.nemotron_agent import (
     NemotronAgent,
     NemotronBridge,
     _build_git_diff,
-    _extract_attr,
     _extract_response_text,
     _parse_fenced_json,
     diagnose_and_propose_fix,
     generate_naive_quick_fix,
-    get_agent,
-    propose_experiments,
     summarize_failure_logs,
 )
 
