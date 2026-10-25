@@ -1,6 +1,6 @@
 {
   "trace_id": "coinflip-corpus-async-queue-race-trace",
-  "timestamp_utc": "2026-10-21T08:31:52.036042+00:00",
+  "timestamp_utc": "2026-10-24T11:15:12.695258+00:00",
   "is_recorded_replay": true,
   "project_name": "event-bus",
   "test_identifier": "event-bus::test_event_queue.py",
@@ -53,7 +53,8 @@
       "absolute_rate_delta": 0.0,
       "is_statistically_significant": false,
       "holm_adjusted_p_value": 1.0
-    }
+    },
+    "intensity": "L2_MODERATE"
   },
   "stage2_ledger": [
     {
@@ -105,7 +106,8 @@
         "absolute_rate_delta": 0.0,
         "is_statistically_significant": false,
         "holm_adjusted_p_value": 1.0
-      }
+      },
+      "intensity": "L2_MODERATE"
     },
     {
       "perturbation": "shuffle_order",
@@ -151,7 +153,8 @@
         "absolute_rate_delta": 0.0,
         "is_statistically_significant": false,
         "holm_adjusted_p_value": 1.0
-      }
+      },
+      "intensity": "L2_MODERATE"
     },
     {
       "perturbation": "seed_change",
@@ -197,7 +200,8 @@
         "absolute_rate_delta": 0.0,
         "is_statistically_significant": false,
         "holm_adjusted_p_value": 1.0
-      }
+      },
+      "intensity": "L2_MODERATE"
     },
     {
       "perturbation": "clock_shift",
@@ -243,7 +247,8 @@
         "absolute_rate_delta": 0.0,
         "is_statistically_significant": false,
         "holm_adjusted_p_value": 1.0
-      }
+      },
+      "intensity": "L2_MODERATE"
     },
     {
       "perturbation": "network_cut",
@@ -289,7 +294,8 @@
         "absolute_rate_delta": 0.0,
         "is_statistically_significant": false,
         "holm_adjusted_p_value": 1.0
-      }
+      },
+      "intensity": "L2_MODERATE"
     },
     {
       "perturbation": "cpu_half_cores",
@@ -335,30 +341,25 @@
         "absolute_rate_delta": 0.0,
         "is_statistically_significant": false,
         "holm_adjusted_p_value": 1.0
-      }
+      },
+      "intensity": "L1_MILD"
     },
     {
       "perturbation": "cpu_heavy_load",
       "label": "Heavy background CPU contention (4x load)",
-      "total_runs": 25,
-      "failures": 25,
+      "total_runs": 20,
+      "failures": 20,
       "passes": 0,
       "failure_rate": 1.0,
-      "ci_95_lower": 0.8668,
+      "ci_95_lower": 0.8389,
       "ci_95_upper": 1.0,
       "execution_backend": "local_isolated",
       "sample_failure_logs": [
-        "Traceback (most recent call last):\n  File \"/Users/vishwajithmbhat/Desktop/AI Projects/coinflip/sandbox_engine/_worker_pool.py\", line 149, in run_worker_chunk\n    f()\n    ~^^\n  File \"/private/var/folders/7b/ngs8ygfn3_3crnsjzmpfckg00000gn/T/coinflip_batch_mhuc66hc/test_event_queue.py\", line 33, in test_all_events_flushed\n    assert len(eq.flushed_events) == 10, (\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: Only 7/10 events flushed — consumer thread likely starved for CPU",
-        "Traceback (most recent call last):\n  File \"/Users/vishwajithmbhat/Desktop/AI Projects/coinflip/sandbox_engine/_worker_pool.py\", line 149, in run_worker_chunk\n    f()\n    ~^^\n  File \"/private/var/folders/7b/ngs8ygfn3_3crnsjzmpfckg00000gn/T/coinflip_batch_mhuc66hc/test_event_queue.py\", line 33, in test_all_events_flushed\n    assert len(eq.flushed_events) == 10, (\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: Only 5/10 events flushed — consumer thread likely starved for CPU",
-        "Traceback (most recent call last):\n  File \"/Users/vishwajithmbhat/Desktop/AI Projects/coinflip/sandbox_engine/_worker_pool.py\", line 149, in run_worker_chunk\n    f()\n    ~^^\n  File \"/private/var/folders/7b/ngs8ygfn3_3crnsjzmpfckg00000gn/T/coinflip_batch_mhuc66hc/test_event_queue.py\", line 33, in test_all_events_flushed\n    assert len(eq.flushed_events) == 10, (\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: Only 6/10 events flushed — consumer thread likely starved for CPU",
-        "Traceback (most recent call last):\n  File \"/Users/vishwajithmbhat/Desktop/AI Projects/coinflip/sandbox_engine/_worker_pool.py\", line 149, in run_worker_chunk\n    f()\n    ~^^\n  File \"/private/var/folders/7b/ngs8ygfn3_3crnsjzmpfckg00000gn/T/coinflip_batch_mhuc66hc/test_event_queue.py\", line 33, in test_all_events_flushed\n    assert len(eq.flushed_events) == 10, (\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: Only 8/10 events flushed — consumer thread likely starved for CPU"
+        "Traceback (most recent call last):\n  File \"/Users/vishwajithmbhat/Desktop/AI Projects/coinflip/sandbox_engine/_worker_pool.py\", line 168, in run_worker_chunk\n    f()\n    ~^^\n  File \"/private/var/folders/7b/ngs8ygfn3_3crnsjzmpfckg00000gn/T/coinflip_batch_wil1r7qs/test_event_queue.py\", line 33, in test_all_events_flushed\n    assert len(eq.flushed_events) == 10, (\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: Only 2/10 events flushed — consumer thread likely starved for CPU",
+        "Traceback (most recent call last):\n  File \"/Users/vishwajithmbhat/Desktop/AI Projects/coinflip/sandbox_engine/_worker_pool.py\", line 168, in run_worker_chunk\n    f()\n    ~^^\n  File \"/private/var/folders/7b/ngs8ygfn3_3crnsjzmpfckg00000gn/T/coinflip_batch_wil1r7qs/test_event_queue.py\", line 33, in test_all_events_flushed\n    assert len(eq.flushed_events) == 10, (\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: Only 1/10 events flushed — consumer thread likely starved for CPU",
+        "Traceback (most recent call last):\n  File \"/Users/vishwajithmbhat/Desktop/AI Projects/coinflip/sandbox_engine/_worker_pool.py\", line 168, in run_worker_chunk\n    f()\n    ~^^\n  File \"/private/var/folders/7b/ngs8ygfn3_3crnsjzmpfckg00000gn/T/coinflip_batch_wil1r7qs/test_event_queue.py\", line 33, in test_all_events_flushed\n    assert len(eq.flushed_events) == 10, (\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: Only 3/10 events flushed — consumer thread likely starved for CPU"
       ],
       "run_dots": [
-        false,
-        false,
-        false,
-        false,
-        false,
         false,
         false,
         false,
@@ -386,7 +387,8 @@
         "absolute_rate_delta": 1.0,
         "is_statistically_significant": true,
         "holm_adjusted_p_value": 0.0
-      }
+      },
+      "intensity": "L3_EXTREME"
     }
   ],
   "triggering_stress_condition": "cpu_heavy_load",
@@ -424,43 +426,49 @@
           true,
           true
         ],
-        "causal_metrics": null
+        "causal_metrics": null,
+        "intensity": "L2_MODERATE"
       },
       "stress_cert_result": {
         "perturbation": "cpu_heavy_load",
         "label": "Heavy background CPU contention (4x load)",
         "total_runs": 15,
-        "failures": 0,
-        "passes": 15,
-        "failure_rate": 0.0,
-        "ci_95_lower": 0.0,
-        "ci_95_upper": 0.2039,
+        "failures": 15,
+        "passes": 0,
+        "failure_rate": 1.0,
+        "ci_95_lower": 0.7961,
+        "ci_95_upper": 1.0,
         "execution_backend": "local_isolated",
-        "sample_failure_logs": [],
-        "run_dots": [
-          true,
-          true,
-          true,
-          true,
-          true,
-          true,
-          true,
-          true,
-          true,
-          true,
-          true,
-          true,
-          true,
-          true,
-          true
+        "sample_failure_logs": [
+          "Traceback (most recent call last):\n  File \"/Users/vishwajithmbhat/Desktop/AI Projects/coinflip/sandbox_engine/_worker_pool.py\", line 168, in run_worker_chunk\n    f()\n    ~^^\n  File \"/private/var/folders/7b/ngs8ygfn3_3crnsjzmpfckg00000gn/T/coinflip_batch_f6srfa1e/test_event_queue.py\", line 27, in test_all_events_flushed\n    assert len(eq.flushed_events) == 10, (\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: Only 3/10 events flushed",
+          "Traceback (most recent call last):\n  File \"/Users/vishwajithmbhat/Desktop/AI Projects/coinflip/sandbox_engine/_worker_pool.py\", line 168, in run_worker_chunk\n    f()\n    ~^^\n  File \"/private/var/folders/7b/ngs8ygfn3_3crnsjzmpfckg00000gn/T/coinflip_batch_f6srfa1e/test_event_queue.py\", line 27, in test_all_events_flushed\n    assert len(eq.flushed_events) == 10, (\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: Only 4/10 events flushed",
+          "Traceback (most recent call last):\n  File \"/Users/vishwajithmbhat/Desktop/AI Projects/coinflip/sandbox_engine/_worker_pool.py\", line 168, in run_worker_chunk\n    f()\n    ~^^\n  File \"/private/var/folders/7b/ngs8ygfn3_3crnsjzmpfckg00000gn/T/coinflip_batch_f6srfa1e/test_event_queue.py\", line 27, in test_all_events_flushed\n    assert len(eq.flushed_events) == 10, (\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: Only 2/10 events flushed"
         ],
-        "causal_metrics": null
+        "run_dots": [
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        "causal_metrics": null,
+        "intensity": "L3_EXTREME"
       },
-      "upper_bound_95_normal": 0.2,
-      "upper_bound_95_stress": 0.2,
+      "upper_bound_95_normal": 0.181,
+      "upper_bound_95_stress": 1.0,
       "target_limit": 0.005,
       "verdict": "REJECTED",
-      "rejection_reason": "Looks fixed on a quiet machine (15/15 passed), but fails under cpu_heavy_load stress: 0/15 failed (0.0%). [SPRT early-stopped at 15 runs: saved 15 runs / 50.0% compute]",
+      "rejection_reason": "Looks fixed on a quiet machine (15/15 passed), but fails under cpu_heavy_load stress: 15/15 failed (100.0%). [SPRT early-stopped at 15 runs: saved 15 runs / 50.0% compute]",
       "ast_audit": {
         "passed_gatekeeper": true,
         "status_code": "WARN_SLEEP_INFLATION",
@@ -481,7 +489,7 @@
         "target_runs_stress": 30,
         "runs_saved": 15,
         "compute_saved_pct": 50.0,
-        "log_likelihood_ratio": 3.5,
+        "log_likelihood_ratio": 42.2012,
         "rejection_threshold_b": 2.9444
       },
       "fix_source": "naive_baseline_fixture",
@@ -536,7 +544,8 @@
           true,
           true
         ],
-        "causal_metrics": null
+        "causal_metrics": null,
+        "intensity": "L2_MODERATE"
       },
       "stress_cert_result": {
         "perturbation": "cpu_heavy_load",
@@ -581,10 +590,11 @@
           true,
           true
         ],
-        "causal_metrics": null
+        "causal_metrics": null,
+        "intensity": "L3_EXTREME"
       },
-      "upper_bound_95_normal": 0.1,
-      "upper_bound_95_stress": 0.1,
+      "upper_bound_95_normal": 0.095,
+      "upper_bound_95_stress": 0.095,
       "target_limit": 0.005,
       "verdict": "CERTIFIED",
       "rejection_reason": null,
@@ -598,9 +608,10 @@
         "no_bare_exception_swallowing": true,
         "sleep_inflation_detected": false,
         "synchronization_primitives_detected": [
+          "wait_for_drain",
           "eq.wait_for_drain"
         ],
-        "summary": "Verified Clean: All assertions preserved (2/1), no suppression detected, and deterministic synchronization verified [eq.wait_for_drain]."
+        "summary": "Verified Clean: All assertions preserved (2/1), no suppression detected, and deterministic synchronization verified [wait_for_drain, eq.wait_for_drain]."
       },
       "sprt_telemetry": {
         "enabled": true,
@@ -621,21 +632,21 @@
   "final_verdict": "PASS",
   "models_used": {},
   "race_timeline": {
-    "measured_quiet_worker_ms": 0.45,
-    "measured_quiet_assert_ms": 6.72,
-    "quiet_margin_ms": 6.27,
-    "measured_stress_worker_ms": 48.22,
-    "measured_stress_assert_ms": 41.82,
+    "measured_quiet_worker_ms": 0.4,
+    "measured_quiet_assert_ms": 6.66,
+    "quiet_margin_ms": 6.26,
+    "measured_stress_worker_ms": 37.65,
+    "measured_stress_assert_ms": 31.25,
     "stress_race_violation_ms": -6.4,
-    "explanation": "Quiet baseline displays a positive safety margin of +6.27ms (worker finishes in 0.45ms before assert fires at 6.72ms). Under CPU heavy load, thread contention delays worker completion to 48.22ms, producing a 6.40ms race violation (assert fires 6.40ms before background worker completes)."
+    "explanation": "Quiet baseline displays a positive safety margin of +6.26ms (worker finishes in 0.40ms before assert fires at 6.66ms). Under CPU heavy load, thread contention delays worker completion to 37.65ms, producing a 6.40ms race violation (assert fires 6.40ms before background worker completes)."
   },
   "attestation": {
     "algorithm": "SHA-256-Merkle",
-    "repo_snapshot_sha256": "1254bafef61ed0523ac74a448e243f81d5e4aff2bce7a76fe03e7d4160f972b5",
+    "repo_snapshot_sha256": "282d5eb0a6517daa2fa5de4e2b66b86e4a99730e94dfaa3245a40e150531a1c7",
     "patch_diff_sha256": "3cf329486a8e9ed4daad31e444d6113c104d79e2535474ece5426324df267154",
-    "experiment_ledger_merkle_root": "0fa5b6ded561674917436a854f47186938034b9d391ea16bc37ddb20bd89a80c",
-    "certificate_digest_sha256": "54ceb949283d95118cf25aece24668adda021affc765a6576a5a85c571db921b",
-    "hmac_signature": "c6706fac762102d2e10cdb03d721b15a8da0127726e3cfccb37463d8e90469f3",
+    "experiment_ledger_merkle_root": "ab49623c60a54cb9a7a26ef127d509dbcaa2c2d8a454b4aa1ef5c39813133ba9",
+    "certificate_digest_sha256": "aad5fd8976adc47dfaa7ff5568526d38b37e4686b5f1998fcec8a67ce0ec64ae",
+    "hmac_signature": "6dd96580e95aab03f6333350dc7124c727d3c1abea3ba8549da0928b70a1b2e2",
     "signing_mode": "hmac_sha256_server_secret",
     "verified": true
   },
@@ -651,6 +662,11 @@
       "fallback_used": true,
       "error": "Both nvidia/nemotron-3-super-120b-a12b and nvidia/Nemotron-3_5-Lightning failed. Last error: Connection error."
     },
+    "hypothesis": {
+      "live_api_succeeded": false,
+      "error": "All model calls failed. Last error: Connection error.",
+      "fallback_used": true
+    },
     "last_call": {
       "live_api_succeeded": false,
       "completion_id": "",
@@ -661,5 +677,93 @@
       "error": "Both nvidia/nemotron-3-super-120b-a12b and nvidia/Nemotron-3_5-Lightning failed. Last error: Connection error."
     }
   },
-  "trace_origin": "recorded_execution"
+  "trace_origin": "recorded_execution",
+  "amplifier_report": {
+    "enabled": true,
+    "hypothesis_model": "nvidia/Nemotron-3_5-Lightning",
+    "hypothesis_completion_id": null,
+    "hypothesis_source": "ast_heuristic_fallback",
+    "ast_detected_signals": [
+      "imports:time",
+      "imports:threading",
+      "calls:time.sleep",
+      "calls:Thread.start"
+    ],
+    "search_algorithm": "successive_halving_thompson",
+    "exploration_budget": 24,
+    "confirmation_budget": 20,
+    "winning_arm_id": "cpu_heavy_load:L3_EXTREME",
+    "winning_perturbation": "cpu_heavy_load",
+    "winning_intensity": "L3_EXTREME",
+    "baseline_failure_rate": 0.0,
+    "confirmation_runs": 20,
+    "confirmation_failures": 20,
+    "confirmed_failure_rate": 1.0,
+    "confirmed_ci_95_lower": 0.8389,
+    "confirmed_ci_95_upper": 1.0,
+    "amplification_factor": 100.0,
+    "runs_to_first_failure": 1,
+    "leaderboard": [
+      {
+        "arm_id": "cpu_heavy_load:L3_EXTREME",
+        "perturbation": "cpu_heavy_load",
+        "intensity": "L3_EXTREME",
+        "nemotron_prior_rank": 1,
+        "nemotron_rationale": "Tight GIL thrashing (1µs) and background burner threads maximize thread race exposure during unsynchronized waits.",
+        "round1_runs": 3,
+        "round1_failures": 3,
+        "round2_runs": 6,
+        "round2_failures": 6,
+        "total_exploration_runs": 9,
+        "total_exploration_failures": 9,
+        "exploration_failure_rate": 1.0,
+        "eliminated_in_round": null
+      },
+      {
+        "arm_id": "cpu_half_cores:L1_MILD",
+        "perturbation": "cpu_half_cores",
+        "intensity": "L1_MILD",
+        "nemotron_prior_rank": 2,
+        "nemotron_rationale": "Core starvation increases preemption latency, exposing timing assumptions in thread completion.",
+        "round1_runs": 3,
+        "round1_failures": 0,
+        "round2_runs": 6,
+        "round2_failures": 0,
+        "total_exploration_runs": 9,
+        "total_exploration_failures": 0,
+        "exploration_failure_rate": 0.0,
+        "eliminated_in_round": 2
+      },
+      {
+        "arm_id": "clock_shift:L2_MODERATE",
+        "perturbation": "clock_shift",
+        "intensity": "L2_MODERATE",
+        "nemotron_prior_rank": 3,
+        "nemotron_rationale": "Wall-clock shift tests whether thread timeouts rely on wall-clock instead of monotonic time.",
+        "round1_runs": 3,
+        "round1_failures": 0,
+        "round2_runs": 0,
+        "round2_failures": 0,
+        "total_exploration_runs": 3,
+        "total_exploration_failures": 0,
+        "exploration_failure_rate": 0.0,
+        "eliminated_in_round": 1
+      },
+      {
+        "arm_id": "shuffle_order:L2_MODERATE",
+        "perturbation": "shuffle_order",
+        "intensity": "L2_MODERATE",
+        "nemotron_prior_rank": 4,
+        "nemotron_rationale": "Permuting test execution order reveals shared state leaks or unjoined daemon threads.",
+        "round1_runs": 3,
+        "round1_failures": 0,
+        "round2_runs": 0,
+        "round2_failures": 0,
+        "total_exploration_runs": 3,
+        "total_exploration_failures": 0,
+        "exploration_failure_rate": 0.0,
+        "eliminated_in_round": 1
+      }
+    ]
+  }
 }

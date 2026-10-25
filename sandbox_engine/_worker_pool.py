@@ -25,7 +25,7 @@ if str(workspace_root) not in sys.path:
     sys.path.insert(0, str(workspace_root))
 
 from sandbox_engine.perturbations import build_perturbation_context
-from shared_contracts.schemas import PerturbationType, SingleRunResult
+from shared_contracts.schemas import PerturbationIntensity, PerturbationType, SingleRunResult
 
 # Save unpatched builtins
 _ORIG_TIME = time.time
@@ -39,6 +39,7 @@ def run_worker_chunk(
     perturbation: PerturbationType,
     run_ids: list[int],
     base_seed: int = 1000,
+    intensity: PerturbationIntensity | str | None = None,
 ) -> list[SingleRunResult]:
     """Executes a list of run_ids sequentially within this worker process."""
     temp_dir = Path(temp_dir).resolve()
@@ -125,14 +126,34 @@ def run_worker_chunk(
                     "COINFLIP_HALF_CORES",
                 ):
                     os.environ.pop(k, None)
-                ctx = build_perturbation_context(perturbation, run_id=run_id, base_seed=base_seed)
+                ctx = build_perturbation_context(
+                    perturbation, run_id=run_id, base_seed=base_seed, intensity=intensity
+                )
                 os.environ["COINFLIP_PERTURBATION"] = perturbation.value
                 os.environ.update(ctx.env_vars)
 
                 funcs_to_run = list(direct_test_funcs)
-                if perturbation == PerturbationType.SHUFFLE_ORDER:
-                    if len(funcs_to_run) > 1:
+                if perturbation == PerturbationType.SHUFFLE_ORDER and len(funcs_to_run) > 1:
+                    resolved_intensity = ctx.intensity
+                    if resolved_intensity == PerturbationIntensity.L1_MILD:
                         funcs_to_run.reverse()
+                    elif resolved_intensity == PerturbationIntensity.L3_EXTREME:
+                        mutating_funcs = [
+                            f
+                            for f in direct_test_funcs
+                            if any(k in f.__name__.lower() for k in ("mutate", "set", "write", "update", "dirty", "pollut", "b_"))
+                        ]
+                        if not mutating_funcs and len(direct_test_funcs) > 1:
+                            mutating_funcs = direct_test_funcs[1:]
+                        funcs_to_run = mutating_funcs + mutating_funcs + direct_test_funcs
+                    else:  # L2_MODERATE
+                        import random
+                        rng = random.Random(10000 + run_id * 37)
+                        permuted = list(funcs_to_run)
+                        rng.shuffle(permuted)
+                        if permuted == funcs_to_run:
+                            permuted.reverse()
+                        funcs_to_run = permuted
 
                 start_t = time.perf_counter()
                 passed = True
@@ -140,7 +161,9 @@ def run_worker_chunk(
                 error_snippet = None
 
                 try:
-                    with perturbation_runtime_context(perturbation, run_id=run_id, base_seed=base_seed):
+                    with perturbation_runtime_context(
+                        perturbation, run_id=run_id, base_seed=base_seed, intensity=ctx.intensity
+                    ):
                         for f in funcs_to_run:
                             f()
                 except Exception as e:
@@ -166,7 +189,9 @@ def run_worker_chunk(
 
             for run_id in run_ids:
                 sys.modules.pop(mod_name, None)
-                ctx = build_perturbation_context(perturbation, run_id=run_id, base_seed=base_seed)
+                ctx = build_perturbation_context(
+                    perturbation, run_id=run_id, base_seed=base_seed, intensity=intensity
+                )
                 os.environ.update(ctx.env_vars)
 
                 pytest_args = [
@@ -234,6 +259,7 @@ def run_inprocess_worker_pool(
     run_ids: list[int],
     base_seed: int = 1000,
     num_workers: int | None = None,
+    intensity: PerturbationIntensity | str | None = None,
 ) -> list[SingleRunResult]:
     """Runs a batch of test runs across high-throughput in-process workers.
 
@@ -244,6 +270,8 @@ def run_inprocess_worker_pool(
         temp_dir = Path(temp_dir).resolve()
     if isinstance(perturbation, str):
         perturbation = PerturbationType(perturbation)
+    if isinstance(intensity, str):
+        intensity = PerturbationIntensity(intensity)
 
     return run_worker_chunk(
         temp_dir=temp_dir,
@@ -251,6 +279,7 @@ def run_inprocess_worker_pool(
         perturbation=perturbation,
         run_ids=run_ids,
         base_seed=base_seed,
+        intensity=intensity,
     )
 
 
@@ -261,11 +290,13 @@ def main() -> None:
     parser.add_argument("--perturbation", required=True, help="Perturbation condition")
     parser.add_argument("--run-ids", required=True, help="Comma-separated run IDs")
     parser.add_argument("--base-seed", type=int, default=1000, help="Base seed for perturbation")
+    parser.add_argument("--intensity", default=None, help="Perturbation intensity level")
     args = parser.parse_args()
 
     temp_dir = Path(args.temp_dir).resolve()
     perturbation = PerturbationType(args.perturbation)
     run_ids = [int(x.strip()) for x in args.run_ids.split(",") if x.strip()]
+    intensity = PerturbationIntensity(args.intensity) if args.intensity else None
 
     results = run_worker_chunk(
         temp_dir=temp_dir,
@@ -273,6 +304,7 @@ def main() -> None:
         perturbation=perturbation,
         run_ids=run_ids,
         base_seed=args.base_seed,
+        intensity=intensity,
     )
 
     serialized = [r.model_dump() for r in results]

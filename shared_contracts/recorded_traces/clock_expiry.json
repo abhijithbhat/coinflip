@@ -1,6 +1,6 @@
 {
   "trace_id": "coinflip-corpus-clock-expiry-trace",
-  "timestamp_utc": "2026-10-21T08:31:48.995306+00:00",
+  "timestamp_utc": "2026-10-24T11:15:06.680218+00:00",
   "is_recorded_replay": true,
   "project_name": "auth-gateway",
   "test_identifier": "auth-gateway::test_token_ttl.py",
@@ -53,7 +53,8 @@
       "absolute_rate_delta": 0.0,
       "is_statistically_significant": false,
       "holm_adjusted_p_value": 1.0
-    }
+    },
+    "intensity": "L2_MODERATE"
   },
   "stage2_ledger": [
     {
@@ -105,7 +106,8 @@
         "absolute_rate_delta": 0.0,
         "is_statistically_significant": false,
         "holm_adjusted_p_value": 1.0
-      }
+      },
+      "intensity": "L2_MODERATE"
     },
     {
       "perturbation": "shuffle_order",
@@ -151,7 +153,8 @@
         "absolute_rate_delta": 0.0,
         "is_statistically_significant": false,
         "holm_adjusted_p_value": 1.0
-      }
+      },
+      "intensity": "L2_MODERATE"
     },
     {
       "perturbation": "seed_change",
@@ -197,27 +200,23 @@
         "absolute_rate_delta": 0.0,
         "is_statistically_significant": false,
         "holm_adjusted_p_value": 1.0
-      }
+      },
+      "intensity": "L2_MODERATE"
     },
     {
       "perturbation": "clock_shift",
       "label": "Clock skew / timing offset (+1 hour)",
-      "total_runs": 25,
-      "failures": 25,
+      "total_runs": 20,
+      "failures": 20,
       "passes": 0,
       "failure_rate": 1.0,
-      "ci_95_lower": 0.8668,
+      "ci_95_lower": 0.8389,
       "ci_95_upper": 1.0,
       "execution_backend": "local_isolated",
       "sample_failure_logs": [
-        "Traceback (most recent call last):\n  File \"/Users/vishwajithmbhat/Desktop/AI Projects/coinflip/sandbox_engine/_worker_pool.py\", line 149, in run_worker_chunk\n    f()\n    ~^^\n  File \"/private/var/folders/7b/ngs8ygfn3_3crnsjzmpfckg00000gn/T/coinflip_batch_whx346qy/test_token_ttl.py\", line 23, in test_cache_stores_and_retrieves\n    assert result == \"eyJhbGciOiJIUzI1NiJ9.test_payload\", (\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: Expected session token, got None — token expired prematurely due to wall-clock skew"
+        "Traceback (most recent call last):\n  File \"/Users/vishwajithmbhat/Desktop/AI Projects/coinflip/sandbox_engine/_worker_pool.py\", line 168, in run_worker_chunk\n    f()\n    ~^^\n  File \"/private/var/folders/7b/ngs8ygfn3_3crnsjzmpfckg00000gn/T/coinflip_batch_nxoz9egw/test_token_ttl.py\", line 23, in test_cache_stores_and_retrieves\n    assert result == \"eyJhbGciOiJIUzI1NiJ9.test_payload\", (\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: Expected session token, got None — token expired prematurely due to wall-clock skew"
       ],
       "run_dots": [
-        false,
-        false,
-        false,
-        false,
-        false,
         false,
         false,
         false,
@@ -245,7 +244,8 @@
         "absolute_rate_delta": 1.0,
         "is_statistically_significant": true,
         "holm_adjusted_p_value": 0.0
-      }
+      },
+      "intensity": "L3_EXTREME"
     },
     {
       "perturbation": "network_cut",
@@ -291,7 +291,8 @@
         "absolute_rate_delta": 0.0,
         "is_statistically_significant": false,
         "holm_adjusted_p_value": 1.0
-      }
+      },
+      "intensity": "L2_MODERATE"
     },
     {
       "perturbation": "cpu_half_cores",
@@ -337,7 +338,8 @@
         "absolute_rate_delta": 0.0,
         "is_statistically_significant": false,
         "holm_adjusted_p_value": 1.0
-      }
+      },
+      "intensity": "L1_MILD"
     },
     {
       "perturbation": "cpu_heavy_load",
@@ -383,7 +385,8 @@
         "absolute_rate_delta": 0.0,
         "is_statistically_significant": false,
         "holm_adjusted_p_value": 1.0
-      }
+      },
+      "intensity": "L3_EXTREME"
     }
   ],
   "triggering_stress_condition": "clock_shift",
@@ -421,7 +424,8 @@
           true,
           true
         ],
-        "causal_metrics": null
+        "causal_metrics": null,
+        "intensity": "L2_MODERATE"
       },
       "stress_cert_result": {
         "perturbation": "clock_shift",
@@ -434,7 +438,7 @@
         "ci_95_upper": 1.0,
         "execution_backend": "local_isolated",
         "sample_failure_logs": [
-          "Traceback (most recent call last):\n  File \"/Users/vishwajithmbhat/Desktop/AI Projects/coinflip/sandbox_engine/_worker_pool.py\", line 149, in run_worker_chunk\n    f()\n    ~^^\n  File \"/private/var/folders/7b/ngs8ygfn3_3crnsjzmpfckg00000gn/T/coinflip_batch_9pdhqgq3/test_token_ttl.py\", line 19, in test_cache_stores_and_retrieves\n    assert result == \"eyJhbGciOiJIUzI1NiJ9.test_payload\", (\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: Expected session token, got None"
+          "Traceback (most recent call last):\n  File \"/Users/vishwajithmbhat/Desktop/AI Projects/coinflip/sandbox_engine/_worker_pool.py\", line 168, in run_worker_chunk\n    f()\n    ~^^\n  File \"/private/var/folders/7b/ngs8ygfn3_3crnsjzmpfckg00000gn/T/coinflip_batch_vm_mb2l1/test_token_ttl.py\", line 19, in test_cache_stores_and_retrieves\n    assert result == \"eyJhbGciOiJIUzI1NiJ9.test_payload\", (\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: Expected session token, got None"
         ],
         "run_dots": [
           false,
@@ -453,9 +457,10 @@
           false,
           false
         ],
-        "causal_metrics": null
+        "causal_metrics": null,
+        "intensity": "L3_EXTREME"
       },
-      "upper_bound_95_normal": 0.2,
+      "upper_bound_95_normal": 0.181,
       "upper_bound_95_stress": 1.0,
       "target_limit": 0.005,
       "verdict": "REJECTED",
@@ -535,7 +540,8 @@
           true,
           true
         ],
-        "causal_metrics": null
+        "causal_metrics": null,
+        "intensity": "L2_MODERATE"
       },
       "stress_cert_result": {
         "perturbation": "clock_shift",
@@ -580,10 +586,11 @@
           true,
           true
         ],
-        "causal_metrics": null
+        "causal_metrics": null,
+        "intensity": "L3_EXTREME"
       },
-      "upper_bound_95_normal": 0.1,
-      "upper_bound_95_stress": 0.1,
+      "upper_bound_95_normal": 0.095,
+      "upper_bound_95_stress": 0.095,
       "target_limit": 0.005,
       "verdict": "CERTIFIED",
       "rejection_reason": null,
@@ -597,9 +604,10 @@
         "no_bare_exception_swallowing": true,
         "sleep_inflation_detected": false,
         "synchronization_primitives_detected": [
+          "monotonic",
           "time.monotonic"
         ],
-        "summary": "Verified Clean: All assertions preserved (1/1), no suppression detected, and deterministic synchronization verified [time.monotonic]."
+        "summary": "Verified Clean: All assertions preserved (1/1), no suppression detected, and deterministic synchronization verified [monotonic, time.monotonic]."
       },
       "sprt_telemetry": {
         "enabled": true,
@@ -620,21 +628,21 @@
   "final_verdict": "PASS",
   "models_used": {},
   "race_timeline": {
-    "measured_quiet_worker_ms": 0.71,
-    "measured_quiet_assert_ms": 6.99,
-    "quiet_margin_ms": 6.28,
-    "measured_stress_worker_ms": 43.28,
-    "measured_stress_assert_ms": 36.88,
+    "measured_quiet_worker_ms": 0.64,
+    "measured_quiet_assert_ms": 6.91,
+    "quiet_margin_ms": 6.27,
+    "measured_stress_worker_ms": 43.92,
+    "measured_stress_assert_ms": 37.52,
     "stress_race_violation_ms": -6.4,
-    "explanation": "Quiet baseline displays a positive safety margin of +6.28ms (worker finishes in 0.71ms before assert fires at 6.99ms). Under CPU heavy load, thread contention delays worker completion to 43.28ms, producing a 6.40ms race violation (assert fires 6.40ms before background worker completes)."
+    "explanation": "Quiet baseline displays a positive safety margin of +6.27ms (worker finishes in 0.64ms before assert fires at 6.91ms). Under CPU heavy load, thread contention delays worker completion to 43.92ms, producing a 6.40ms race violation (assert fires 6.40ms before background worker completes)."
   },
   "attestation": {
     "algorithm": "SHA-256-Merkle",
-    "repo_snapshot_sha256": "f5c56066bf1641af0acccde1bb2d4f3ca74b4333f5d09ad318909a43a6eef92c",
+    "repo_snapshot_sha256": "9863f89a0fefca40573fb53add5a803c7f5bc2f71ce090a427c4fb720ad1a021",
     "patch_diff_sha256": "8a7a3991c25293dead8bd3e2bc26754725e91a4e38edb05a264124c944fb6174",
-    "experiment_ledger_merkle_root": "721f0a802a5cf5ed297a33a4e430261b912cb0fbccae6918447dba5fa36c2abb",
-    "certificate_digest_sha256": "721329637d7a62c18ef0c06368e60409fd2912410aaecc262792f12c29ef902f",
-    "hmac_signature": "a3a0fc883aac302e2eebf0b33ea1c31599d7e2ddf2bb9f8771ac3bf00c350b88",
+    "experiment_ledger_merkle_root": "dbc3c412f35e3a1af39df2fc9859a88d091db976c6f588b599fb43df6f11fa51",
+    "certificate_digest_sha256": "7ea8dbccba248b0be5b2d6dd31a0591741e219424cc298a4b17ca0341726593e",
+    "hmac_signature": "bcc19e924d11bb6b9820ef15833b4d3f4c0216fbf595685b26597233f6523b66",
     "signing_mode": "hmac_sha256_server_secret",
     "verified": true
   },
@@ -650,6 +658,11 @@
       "fallback_used": true,
       "error": "Both nvidia/nemotron-3-super-120b-a12b and nvidia/Nemotron-3_5-Lightning failed. Last error: Connection error."
     },
+    "hypothesis": {
+      "live_api_succeeded": false,
+      "error": "All model calls failed. Last error: Connection error.",
+      "fallback_used": true
+    },
     "last_call": {
       "live_api_succeeded": false,
       "completion_id": "",
@@ -660,5 +673,91 @@
       "error": "Both nvidia/nemotron-3-super-120b-a12b and nvidia/Nemotron-3_5-Lightning failed. Last error: Connection error."
     }
   },
-  "trace_origin": "recorded_execution"
+  "trace_origin": "recorded_execution",
+  "amplifier_report": {
+    "enabled": true,
+    "hypothesis_model": "nvidia/Nemotron-3_5-Lightning",
+    "hypothesis_completion_id": null,
+    "hypothesis_source": "ast_heuristic_fallback",
+    "ast_detected_signals": [
+      "imports:time",
+      "calls:time.time"
+    ],
+    "search_algorithm": "successive_halving_thompson",
+    "exploration_budget": 24,
+    "confirmation_budget": 20,
+    "winning_arm_id": "clock_shift:L3_EXTREME",
+    "winning_perturbation": "clock_shift",
+    "winning_intensity": "L3_EXTREME",
+    "baseline_failure_rate": 0.0,
+    "confirmation_runs": 20,
+    "confirmation_failures": 20,
+    "confirmed_failure_rate": 1.0,
+    "confirmed_ci_95_lower": 0.8389,
+    "confirmed_ci_95_upper": 1.0,
+    "amplification_factor": 100.0,
+    "runs_to_first_failure": 1,
+    "leaderboard": [
+      {
+        "arm_id": "clock_shift:L3_EXTREME",
+        "perturbation": "clock_shift",
+        "intensity": "L3_EXTREME",
+        "nemotron_prior_rank": 1,
+        "nemotron_rationale": "Extreme +86400s leap-day/midnight clock skew triggers cache TTL expiration and timestamp edge cases.",
+        "round1_runs": 3,
+        "round1_failures": 3,
+        "round2_runs": 6,
+        "round2_failures": 6,
+        "total_exploration_runs": 9,
+        "total_exploration_failures": 9,
+        "exploration_failure_rate": 1.0,
+        "eliminated_in_round": null
+      },
+      {
+        "arm_id": "clock_shift:L2_MODERATE",
+        "perturbation": "clock_shift",
+        "intensity": "L2_MODERATE",
+        "nemotron_prior_rank": 2,
+        "nemotron_rationale": "Hour-scale clock offset exposes short token expiration and TTL window invalidation.",
+        "round1_runs": 3,
+        "round1_failures": 3,
+        "round2_runs": 6,
+        "round2_failures": 6,
+        "total_exploration_runs": 9,
+        "total_exploration_failures": 9,
+        "exploration_failure_rate": 1.0,
+        "eliminated_in_round": 2
+      },
+      {
+        "arm_id": "clock_shift:L1_MILD",
+        "perturbation": "clock_shift",
+        "intensity": "L1_MILD",
+        "nemotron_prior_rank": 3,
+        "nemotron_rationale": "Mild +60s clock jitter tests tight timeout threshold margins.",
+        "round1_runs": 3,
+        "round1_failures": 0,
+        "round2_runs": 0,
+        "round2_failures": 0,
+        "total_exploration_runs": 3,
+        "total_exploration_failures": 0,
+        "exploration_failure_rate": 0.0,
+        "eliminated_in_round": 1
+      },
+      {
+        "arm_id": "cpu_heavy_load:L2_MODERATE",
+        "perturbation": "cpu_heavy_load",
+        "intensity": "L2_MODERATE",
+        "nemotron_prior_rank": 4,
+        "nemotron_rationale": "CPU load dilates interval gaps between successive time.time() checks.",
+        "round1_runs": 3,
+        "round1_failures": 0,
+        "round2_runs": 0,
+        "round2_failures": 0,
+        "total_exploration_runs": 3,
+        "total_exploration_failures": 0,
+        "exploration_failure_rate": 0.0,
+        "eliminated_in_round": 1
+      }
+    ]
+  }
 }

@@ -26,9 +26,11 @@ from sandbox_engine.perturbations import (
     PerturbationContext,
     build_perturbation_context,
     get_perturbation_label,
+    resolve_default_intensity,
 )
 from shared_contracts.schemas import (
     BatchExperimentResult,
+    PerturbationIntensity,
     PerturbationType,
     SingleRunResult,
 )
@@ -190,6 +192,7 @@ class SandboxBatchRunner:
         temp_dir: Path,
         perturbation: PerturbationType,
         chunk_run_ids: list[int],
+        intensity: PerturbationIntensity | str | None = None,
     ) -> list[SingleRunResult]:
         """Runs a chunk of test iterations inside a reusable worker process."""
         workspace_root = Path(__file__).resolve().parent.parent
@@ -210,6 +213,9 @@ class SandboxBatchRunner:
             "--run-ids",
             ",".join(map(str, chunk_run_ids)),
         ]
+        if intensity is not None:
+            intensity_val = intensity.value if isinstance(intensity, PerturbationIntensity) else str(intensity)
+            cmd.extend(["--intensity", intensity_val])
 
         proc = await asyncio.create_subprocess_exec(
             *cmd,
@@ -240,9 +246,11 @@ class SandboxBatchRunner:
         self,
         perturbation: PerturbationType,
         num_runs: int,
+        intensity: PerturbationIntensity | str | None = None,
     ) -> list[SingleRunResult]:
         """Runs the batch using isolated local temporary directories and high-speed worker pools."""
         temp_dir = Path(tempfile.mkdtemp(prefix="coinflip_batch_"))
+        resolved_intensity = resolve_default_intensity(perturbation, intensity)
         try:
             # Copy repository contents into isolated workspace
             if self.repo_dir.exists():
@@ -252,7 +260,7 @@ class SandboxBatchRunner:
             if HOOKS_MODULE_PATH.exists():
                 shutil.copy2(HOOKS_MODULE_PATH, temp_dir / "_pytest_hooks.py")
 
-            ctx = build_perturbation_context(perturbation, run_id=0)
+            ctx = build_perturbation_context(perturbation, run_id=0, intensity=resolved_intensity)
 
             # Use high-throughput in-process worker pool for sub-0.5s isolated execution
             from sandbox_engine._worker_pool import run_inprocess_worker_pool
@@ -264,6 +272,7 @@ class SandboxBatchRunner:
                 perturbation=perturbation,
                 run_ids=list(range(num_runs)),
                 base_seed=1000,
+                intensity=resolved_intensity,
             )
 
             # Small batches (<= 12 runs): standard individual subprocess execution
@@ -330,12 +339,14 @@ class SandboxBatchRunner:
         self,
         perturbation: PerturbationType,
         num_runs: int,
+        intensity: PerturbationIntensity | str | None = None,
     ) -> list[SingleRunResult]:
         """Runs the batch inside Nebius Sandboxes microVMs via contree-sdk."""
         from contree_sdk import Contree
 
         client = Contree()
         base_img = await self._get_or_prepare_image(client)
+        resolved_intensity = resolve_default_intensity(perturbation, intensity)
 
         # Upload repository files and hooks into /workspace
         files_to_upload: dict[str, Path] = {}
@@ -366,7 +377,7 @@ class SandboxBatchRunner:
         semaphore = asyncio.Semaphore(min(self.max_concurrency, 45))
 
         async def _run_single_sandbox(run_id: int) -> SingleRunResult:
-            ctx = build_perturbation_context(perturbation, run_id=run_id)
+            ctx = build_perturbation_context(perturbation, run_id=run_id, intensity=resolved_intensity)
             env = {"PYTHONPATH": "/workspace"}
             env.update(ctx.env_vars)
 
@@ -406,22 +417,25 @@ class SandboxBatchRunner:
         self,
         perturbation: PerturbationType,
         num_runs: int,
+        intensity: PerturbationIntensity | str | None = None,
     ) -> BatchExperimentResult:
         """Executes a full experiment batch under the specified perturbation condition.
 
         Args:
             perturbation: The PerturbationType condition to test.
             num_runs: Total number of iterations to execute.
+            intensity: Optional perturbation intensity level.
 
         Returns:
             BatchExperimentResult: Complete statistical outcome with Wilson confidence intervals.
         """
         backend = await self.resolve_execution_backend()
         label = get_perturbation_label(perturbation)
+        resolved_intensity = resolve_default_intensity(perturbation, intensity)
 
         if backend == "nebius_sandbox":
             try:
-                run_results = await self._run_batch_nebius(perturbation, num_runs)
+                run_results = await self._run_batch_nebius(perturbation, num_runs, intensity=resolved_intensity)
             except Exception as e:
                 logger.warning(
                     "Nebius Sandbox execution encountered error: %s. Falling back to local_isolated.",
@@ -429,9 +443,9 @@ class SandboxBatchRunner:
                 )
                 backend = "local_isolated"
                 self._cached_backend = "local_isolated"
-                run_results = await self._run_batch_local(perturbation, num_runs)
+                run_results = await self._run_batch_local(perturbation, num_runs, intensity=resolved_intensity)
         else:
-            run_results = await self._run_batch_local(perturbation, num_runs)
+            run_results = await self._run_batch_local(perturbation, num_runs, intensity=resolved_intensity)
 
         # Aggregate metrics
         passes = sum(1 for r in run_results if r.passed)
@@ -456,6 +470,7 @@ class SandboxBatchRunner:
 
         return BatchExperimentResult(
             perturbation=perturbation,
+            intensity=resolved_intensity,
             label=label,
             total_runs=total_runs,
             failures=failures,

@@ -133,6 +133,20 @@ class CertificateAttestor:
                     int(stress.get("passes", 0)),
                     stress_dots,
                 ))
+            # Flake Amplifier Report (if present)
+            amp = trace.get("amplifier_report")
+            if amp and isinstance(amp, dict):
+                winning_arm_id = str(amp.get("winning_arm_id", ""))
+                conf_runs = int(amp.get("confirmation_runs", 0))
+                conf_fails = int(amp.get("confirmation_failures", 0))
+                conf_passes = conf_runs - conf_fails
+                records.append((
+                    f"amplifier:{winning_arm_id}",
+                    conf_runs,
+                    conf_fails,
+                    conf_passes,
+                    "",
+                ))
         else:
             # Stage 1
             s1 = trace.stage1_baseline
@@ -173,6 +187,20 @@ class CertificateAttestor:
                     stress.failures,
                     stress.passes,
                     stress_dots,
+                ))
+            # Flake Amplifier Report (if present)
+            if trace.amplifier_report is not None:
+                amp_obj = trace.amplifier_report
+                winning_arm_id = str(amp_obj.winning_arm_id)
+                conf_runs = int(amp_obj.confirmation_runs)
+                conf_fails = int(amp_obj.confirmation_failures)
+                conf_passes = conf_runs - conf_fails
+                records.append((
+                    f"amplifier:{winning_arm_id}",
+                    conf_runs,
+                    conf_fails,
+                    conf_passes,
+                    "",
                 ))
 
         return records
@@ -438,6 +466,21 @@ def verify_trace(trace: dict[str, Any] | CoinflipCertificateTrace) -> dict[str, 
             "hmac_valid": False,
             "reason": leaf_error_msg,
         }
+
+    # Validate Flake Amplifier Report arithmetic if present
+    amp = data.get("amplifier_report")
+    if amp and isinstance(amp, dict):
+        conf_runs = int(amp.get("confirmation_runs", 0))
+        conf_fails = int(amp.get("confirmation_failures", 0))
+        if conf_fails > conf_runs:
+            return {
+                "verified": False,
+                "claimed_merkle_root": claimed_root,
+                "computed_merkle_root": "",
+                "leaf_counts_valid": False,
+                "hmac_valid": False,
+                "reason": f"Tampered amplifier confirmation counts: failures={conf_fails} > total_runs={conf_runs}",
+            }
 
     # Step 3: Recompute Merkle root without mutating claimed_root
     attestor = CertificateAttestor()

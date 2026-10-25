@@ -17,6 +17,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
 
+from sandbox_engine.amplifier import FlakeAmplifier
 from sandbox_engine.attestation import (
     CertificateAttestor,
 )
@@ -32,6 +33,8 @@ from shared_contracts.schemas import (
     BatchExperimentResult,
     CandidateFixEvaluation,
     CoinflipCertificateTrace,
+    FlakeAmplifierReport,
+    PerturbationIntensity,
     PerturbationType,
 )
 
@@ -193,9 +196,52 @@ class CoinflipOrchestrator:
             asyncio.to_thread(self.llm.summarize_failure_logs, sample_failure_logs)
         )
 
+        # Read original test code from base snapshot for AST analysis & AI repair
+        test_file_path = base_snapshot_path / self.test_target
+        original_test_code = test_file_path.read_text(encoding="utf-8") if test_file_path.exists() else ""
+
+        # Read companion service code if available in base snapshot
+        service_code = ""
+        for p in base_snapshot_path.glob("*.py"):
+            if not p.name.startswith("test_") and p.name not in ("conftest.py", "__init__.py"):
+                try:
+                    service_code += f"# {p.name}:\n{p.read_text(encoding='utf-8')}\n\n"
+                except Exception:
+                    pass
+
         # ---------------------------------------------------------------------
-        # STAGE 2: EXPERIMENT (7-CONDITION PERTURBATION LEDGER)
+        # STAGE 2: FLAKE AMPLIFIER (SUCCESSIVE HALVING SEARCH) & PERTURBATION LEDGER
         # ---------------------------------------------------------------------
+        _notify("stage2_amplifier", {
+            "stage": 2,
+            "status": "running",
+            "message": "Ranking perturbation hypotheses and running adaptive Flake Amplifier...",
+        })
+        logger.info("[STAGE 2] Ranking hypotheses with Nemotron Lightning / AST signals...")
+        hypothesis_bridge = self.llm if hasattr(self.llm, "rank_amplification_hypotheses") else NemotronBridge()
+        hypotheses = hypothesis_bridge.rank_amplification_hypotheses(
+            test_code=original_test_code,
+            target_code=service_code,
+        )
+
+        logger.info("[STAGE 2] Running Flake Amplifier adaptive successive-halving search...")
+        amplifier = FlakeAmplifier(
+            batch_runner=runner,
+            workspace_dir=base_snapshot_path,
+            test_target=self.test_target,
+            baseline_result=stage1_baseline,
+            hypotheses=hypotheses,
+            fast_live_mode=fast_live_mode,
+        )
+        amplifier_report: FlakeAmplifierReport
+        confirmation_batch: BatchExperimentResult | None
+        amplifier_report, confirmation_batch = await amplifier.run()
+        logger.info(
+            "Flake Amplifier finished: winning arm %s (confirmed failure rate: %.1f%%)",
+            amplifier_report.winning_arm_id,
+            amplifier_report.confirmed_failure_rate * 100,
+        )
+
         _notify("stage2_perturbation", {
             "stage": 2,
             "status": "running",
@@ -214,12 +260,15 @@ class CoinflipOrchestrator:
 
         stage2_ledger: list[BatchExperimentResult] = []
         highest_rate = -1.0
-        triggering_condition = PerturbationType.CPU_HEAVY_LOAD
+        triggering_condition = amplifier_report.winning_perturbation
+        winning_intensity: PerturbationIntensity | None = amplifier_report.winning_intensity
 
         for cond in conditions_order:
             # Re-use stage1 result for baseline always (eliminates redundant batch execution)
             if cond == PerturbationType.BASELINE:
                 batch_res = stage1_baseline
+            elif cond == amplifier_report.winning_perturbation and confirmation_batch is not None:
+                batch_res = confirmation_batch
             else:
                 batch_res = await runner.run_batch(cond, num_runs=stage2_runs)
 
@@ -248,6 +297,7 @@ class CoinflipOrchestrator:
                 if score > highest_rate:
                     highest_rate = score
                     triggering_condition = batch_res.perturbation
+                    winning_intensity = batch_res.intensity or amplifier_report.winning_intensity
 
         # Apply Holm-Bonferroni step-down multiple comparison adjustment across Stage 2
         from sandbox_engine.math_utils import holm_bonferroni_adjust
@@ -265,7 +315,7 @@ class CoinflipOrchestrator:
                     adj_p < 0.01 and r.causal_metrics.relative_risk >= 1.8
                 )
 
-        logger.info("Stage 2 Triggering Stress Condition Identified: %s", triggering_condition.value)
+        logger.info("Stage 2 Triggering Stress Condition Identified: %s (intensity: %s)", triggering_condition.value, winning_intensity)
         _notify("stage2_done", {
             "stage": 2,
             "status": "done",
@@ -278,19 +328,6 @@ class CoinflipOrchestrator:
         except Exception as e:
             logger.warning("Concurrent Nebius log summarization failed (%s). Using fallback summary.", e)
             log_summary = f"Observed {stage1_baseline.failures} assertion failures in {self.test_target}."
-
-        # Read original test code from base snapshot for AI repair
-        test_file_path = base_snapshot_path / self.test_target
-        original_test_code = test_file_path.read_text(encoding="utf-8") if test_file_path.exists() else ""
-
-        # Read companion service code if available in base snapshot
-        service_code = ""
-        for p in base_snapshot_path.glob("*.py"):
-            if not p.name.startswith("test_") and p.name not in ("conftest.py", "__init__.py"):
-                try:
-                    service_code += f"# {p.name}:\n{p.read_text(encoding='utf-8')}\n\n"
-                except Exception:
-                    pass
 
         # ---------------------------------------------------------------------
         # STAGES 3 & 4: FIND & FIX + STRESS CERTIFICATION WITH RETRY LOOP
@@ -334,6 +371,7 @@ class CoinflipOrchestrator:
                 root_cause_diagnosis=qf_diag,
                 patch_content=qf_code,
                 triggering_stress_condition=triggering_condition,
+                triggering_intensity=winning_intensity,
                 cert_runs=stage4_cert_runs,
                 target_limit=target_limit,
                 target_file_rel=self.test_target,
@@ -418,6 +456,7 @@ class CoinflipOrchestrator:
             root_cause_diagnosis=real_diag,
             patch_content=real_code,
             triggering_stress_condition=triggering_condition,
+            triggering_intensity=winning_intensity,
             cert_runs=stage4_cert_runs,
             target_limit=target_limit,
             target_file_rel=self.test_target,
@@ -448,9 +487,15 @@ class CoinflipOrchestrator:
         race_profile = profiler.profile(fast_mode=fast_live_mode)
 
         # Collect LLM call metadata from live Nebius completions
+        hyp_meta = (
+            getattr(self.llm, "hypothesis_call_metadata", {})
+            or getattr(hypothesis_bridge, "hypothesis_call_metadata", {})
+            or {}
+        )
         llm_metadata = {
             "summarize": getattr(self.llm, "summarize_call_metadata", {}) or {},
             "diagnose": getattr(self.llm, "diagnose_call_metadata", {}) or {},
+            "hypothesis": hyp_meta,
             "last_call": getattr(self.llm, "last_call_metadata", {}) or {},
         }
 
@@ -461,6 +506,8 @@ class CoinflipOrchestrator:
             models_used["bulk_log_reading"] = str(sum_meta["model"])
         if diag_meta.get("live_api_succeeded") and diag_meta.get("model"):
             models_used["deep_reasoning"] = str(diag_meta["model"])
+        if hyp_meta.get("live_api_succeeded") and hyp_meta.get("model"):
+            models_used["hypothesis_prior"] = str(hyp_meta["model"])
 
         trace = CoinflipCertificateTrace(
             trace_id=trace_id,
@@ -471,6 +518,7 @@ class CoinflipOrchestrator:
             stage1_baseline=stage1_baseline,
             stage2_ledger=stage2_ledger,
             triggering_stress_condition=triggering_condition,
+            amplifier_report=amplifier_report,
             fix_attempts=fix_attempts,
             final_verdict=final_verdict,
             models_used=models_used,

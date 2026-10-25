@@ -17,6 +17,76 @@ class PerturbationType(str, Enum):
     CPU_HEAVY_LOAD = "cpu_heavy_load"
 
 
+class PerturbationIntensity(str, Enum):
+    """Perturbation intensity tier for the Flake Amplifier."""
+    L1_MILD = "L1_MILD"
+    L2_MODERATE = "L2_MODERATE"
+    L3_EXTREME = "L3_EXTREME"
+
+
+class AmplifierArmResult(BaseModel):
+    """Result of exploring a specific (perturbation, intensity) arm during Flake Amplifier search."""
+    arm_id: str = Field(..., description="Unique arm identifier, e.g. 'cpu_heavy_load:L3_EXTREME'")
+    perturbation: PerturbationType = Field(..., description="Perturbation type tested by this arm")
+    intensity: PerturbationIntensity = Field(..., description="Intensity level tested by this arm")
+    nemotron_prior_rank: int = Field(..., description="Initial priority ranking from Nemotron hypothesis")
+    nemotron_rationale: str = Field(..., description="Nemotron or heuristic rationale for testing this arm")
+    round1_runs: int = Field(default=0, description="Exploration runs allocated in Round 1")
+    round1_failures: int = Field(default=0, description="Failures observed in Round 1")
+    round2_runs: int = Field(default=0, description="Exploration runs allocated in Round 2")
+    round2_failures: int = Field(default=0, description="Failures observed in Round 2")
+    total_exploration_runs: int = Field(..., description="Total runs across exploration rounds")
+    total_exploration_failures: int = Field(..., description="Total failures across exploration rounds")
+    exploration_failure_rate: float = Field(..., description="Failure rate observed during exploration")
+    eliminated_in_round: int | None = Field(
+        default=None,
+        description="Round index where this arm was eliminated, or None if finalist/winner",
+    )
+
+
+class FlakeAmplifierReport(BaseModel):
+    """Complete diagnostic report from the Flake Amplifier successive halving search."""
+    enabled: bool = Field(default=True, description="Whether Flake Amplifier search was active")
+    hypothesis_model: str = Field(..., description="Model ID used for prior hypothesis generation")
+    hypothesis_completion_id: str | None = Field(default=None, description="Completion ID for the hypothesis prompt")
+    hypothesis_source: Literal["nemotron_live", "ast_heuristic_fallback"] = Field(
+        default="nemotron_live",
+        description="Source of prior hypothesis: live Nemotron model or AST heuristic fallback",
+    )
+    ast_detected_signals: list[str] = Field(default_factory=list, description="Static AST code signals detected in test target")
+    search_algorithm: str = Field(default="successive_halving_thompson", description="Search algorithm used")
+    exploration_budget: int = Field(..., description="Total run budget spent across exploration rounds")
+    confirmation_budget: int = Field(..., description="Run budget allocated for confirmation of the winning arm")
+    winning_arm_id: str = Field(..., description="Arm identifier that maximized flake amplification")
+    winning_perturbation: PerturbationType = Field(..., description="Winning perturbation type")
+    winning_intensity: PerturbationIntensity = Field(..., description="Winning intensity level")
+    baseline_failure_rate: float = Field(..., description="Baseline failure rate before amplification")
+    confirmation_runs: int = Field(..., description="Confirmed runs executed on the winning arm")
+    confirmation_failures: int = Field(..., description="Confirmed failures observed on the winning arm")
+    confirmed_failure_rate: float = Field(..., description="Confirmed failure rate on the winning arm")
+    confirmed_ci_95_lower: float = Field(..., description="Lower bound of 95% Wilson CI for confirmed rate")
+    confirmed_ci_95_upper: float = Field(..., description="Upper bound of 95% Wilson CI for confirmed rate")
+    amplification_factor: float = Field(..., description="Ratio of confirmed failure rate to baseline failure rate")
+    runs_to_first_failure: int | None = Field(default=None, description="Number of runs until the first failure appeared")
+    leaderboard: list[AmplifierArmResult] = Field(default_factory=list, description="Ranked exploration leaderboard of all arms")
+
+    @property
+    def ranked_arms(self) -> list[AmplifierArmResult]:
+        return self.leaderboard
+
+    @property
+    def total_exploration_runs(self) -> int:
+        return self.exploration_budget
+
+    @property
+    def total_confirmation_runs(self) -> int:
+        return self.confirmation_budget
+
+    @property
+    def wilson_ci_95(self) -> tuple[float, float]:
+        return (self.confirmed_ci_95_lower, self.confirmed_ci_95_upper)
+
+
 class CausalInferenceMetrics(BaseModel):
     """Causal inference and contingency statistical significance metrics."""
     fisher_p_value: float = Field(..., description="p-value from 2x2 contingency analysis / Fisher exact test")
@@ -160,6 +230,10 @@ class BatchExperimentResult(BaseModel):
         default=None,
         description="Optional causal inference and statistical significance metrics",
     )
+    intensity: PerturbationIntensity | None = Field(
+        default=None,
+        description="Optional perturbation intensity tier: L1_MILD, L2_MODERATE, or L3_EXTREME",
+    )
 
 
 class CandidateFixEvaluation(BaseModel):
@@ -280,5 +354,9 @@ class CoinflipCertificateTrace(BaseModel):
     trace_origin: Literal["live_execution", "recorded_execution", "illustrative_reference"] = Field(
         default="recorded_execution",
         description="Origin of trace data: live_execution, recorded_execution, or illustrative_reference",
+    )
+    amplifier_report: FlakeAmplifierReport | None = Field(
+        default=None,
+        description="Optional Flake Amplifier report evaluating perturbation arms via successive halving",
     )
 
