@@ -314,6 +314,18 @@ class TestTraceEnrichment:
         data = response.json()
         assert "race_timeline" in data
 
+    def test_trace_has_amplifier_report(self):
+        response = client.get("/api/trace")
+        assert response.status_code == 200
+        data = response.json()
+        assert "amplifier_report" in data
+        rep = data["amplifier_report"]
+        assert rep["amplification_factor"] == 13.9
+        assert rep["confirmed_failure_rate"] == 0.925
+        assert rep["winning_condition"] == "cpu_heavy_load"
+        assert rep["winning_intensity"] == "L3_EXTREME"
+        assert "fresh Confirmation Batch" in rep["winners_curse_callout"]
+
 
 # -------------------------------------------------------------------------------
 # 8. Phase 5: Archetype Catalog in /api/traces

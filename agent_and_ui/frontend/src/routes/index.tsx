@@ -6,7 +6,7 @@ import {
 } from "recharts";
 import { Activity, BadgeCheck, Brain, Cpu, FlaskConical, Loader2, Play, ScrollText, ShieldAlert, ShieldCheck, XCircle } from "lucide-react";
 import { CommandBar, Pipeline, Dots, Diff, CertificateSeal } from "@/components/lab-controls";
-import { CausalLedger, RaceProfiler, GatekeeperAudit, AttestationBlock, useAttestation, FixSourceBadge } from "@/components/scientific-telemetry";
+import { CausalLedger, RaceProfiler, GatekeeperAudit, AttestationBlock, useAttestation, FixSourceBadge, FlakeAmplifierPanel } from "@/components/scientific-telemetry";
 import { FALLBACK_TRACE, fetchTrace, fetchCaseTrace, fallbackForCase, makeDots, pct, runLive, type CaseId, type Trace } from "@/lib/trace";
 
 export const Route = createFileRoute("/")({
@@ -140,6 +140,9 @@ function Dashboard() {
           ))}
         </div>
       </Panel>
+
+      {/* Stage 2A — Flake Amplifier (Adaptive Bandit Search & Out-of-Sample Confirmation) */}
+      <FlakeAmplifierPanel trace={trace} />
 
       {/* 3. Ledger */}
       <Panel n="02" title="Stage 2 · Experiment Ledger" icon={<Cpu className="h-4 w-4" />}>

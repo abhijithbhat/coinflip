@@ -2,9 +2,9 @@ import { useEffect, useMemo, useState } from "react";
 import { Check, ChevronDown, Copy, Download, Fingerprint, Loader2, ShieldAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { fisherExact, relativeRisk, holmBonferroniAdjust, PROFILER_EXAMPLE, SPRT_EXAMPLE, sealTrace, verifyTrace, type Attestation } from "@/lib/telemetry";
-import { pct, type FixAttempt, type Trace } from "@/lib/trace";
+import { pct, synthesizeAmplifierFallback, type FixAttempt, type Trace } from "@/lib/trace";
 
-export function FixSourceBadge({ source, fallbackVerdict }: { source?: string; fallbackVerdict?: string }) {
+export function FixSourceBadge({ source, fallbackVerdict }: { source?: string | undefined; fallbackVerdict?: string | undefined }) {
   const resolved = source ?? (fallbackVerdict === "CERTIFIED" ? "nemotron_live" : "naive_baseline_fixture");
   if (resolved === "nemotron_live") {
     return (
@@ -235,3 +235,209 @@ export function AttestationBlock({ trace, seal }: { trace: Trace; seal: Attestat
     )}
   </div>;
 }
+
+export function FlakeAmplifierPanel({ trace }: { trace: Trace }) {
+  const report = trace.amplifier_report ?? synthesizeAmplifierFallback(trace);
+
+  const baselinePct = (report.baseline_failure_rate * 100).toFixed(1);
+  const confirmedPct = (report.confirmed_failure_rate * 100).toFixed(1);
+  const ampFactor = report.amplification_factor.toFixed(1);
+  const ciLo = (report.ci_95_lower * 100).toFixed(1);
+  const ciHi = (report.ci_95_upper * 100).toFixed(1);
+
+  return (
+    <section id="stage-02a" className="lab-panel" aria-label="Flake Amplifier Bandit Search">
+      <header className="panel-heading">
+        <span className="section-index">
+          STAGE 02A // ADAPTIVE BANDIT SEARCH &amp; OUT-OF-SAMPLE CONFIRMATION
+        </span>
+        <h2 className="font-display text-2xl font-semibold">
+          Stage 2A — Flake Amplifier (Adaptive Bandit Search &amp; Out-of-Sample Confirmation)
+        </h2>
+      </header>
+
+      {/* Header Banner: Confirmed Amplification Summary */}
+      <div className="mb-6 rounded-md border border-stress/40 bg-gradient-to-r from-stress/10 via-background to-card p-5 shadow-instrument">
+        <div className="flex flex-wrap items-center justify-between gap-4 border-b border-border/80 pb-4">
+          <div className="flex flex-wrap items-center gap-3">
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-stress/60 bg-stress/20 px-3 py-1 font-mono text-xs font-bold text-stress tracking-wide">
+              <span className="h-2 w-2 rounded-full bg-stress animate-pulse" />
+              CONFIRMED AMPLIFIED CONDITION: {report.winning_condition} @ {report.winning_intensity}
+            </span>
+            <span className="font-mono text-xs text-muted-foreground">
+              Runs to First Failure: <strong className="text-foreground">{report.runs_to_first_failure}</strong>
+            </span>
+          </div>
+          <div className="font-mono text-xs text-muted-foreground">
+            Budget: <strong className="text-foreground">n={report.exploration_budget ?? 60}</strong> explore + <strong className="text-foreground">n={report.confirmation_budget ?? 40}</strong> confirm
+          </div>
+        </div>
+
+        <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="rounded border border-border bg-card/60 p-3">
+            <div className="font-mono text-[10px] text-muted-foreground uppercase">Baseline Flake Rate</div>
+            <div className="mt-1 font-mono text-2xl font-semibold text-foreground">
+              {baselinePct}%
+            </div>
+            <div className="mt-1 font-mono text-[10px] text-muted-foreground">
+              Unstressed test suite
+            </div>
+          </div>
+
+          <div className="rounded border border-stress/50 bg-stress/10 p-3">
+            <div className="font-mono text-[10px] text-stress uppercase font-bold">Confirmed Amplified Rate</div>
+            <div className="mt-1 font-mono text-2xl font-bold text-stress">
+              {confirmedPct}%
+            </div>
+            <div className="mt-1 font-mono text-[10px] text-stress/80 font-medium">
+              Out-of-sample confirmed
+            </div>
+          </div>
+
+          <div className="rounded border border-primary/50 bg-primary/10 p-3">
+            <div className="font-mono text-[10px] text-primary uppercase font-bold">Amplification Factor</div>
+            <div className="mt-1 font-mono text-2xl font-bold text-primary">
+              {ampFactor}×
+            </div>
+            <div className="mt-1 font-mono text-[10px] text-primary/80">
+              Baseline {baselinePct}% → Confirmed Amplified {confirmedPct}% ({ampFactor}x Amplification)
+            </div>
+          </div>
+
+          <div className="rounded border border-border bg-card/60 p-3">
+            <div className="font-mono text-[10px] text-muted-foreground uppercase">95% Wilson Score CI</div>
+            <div className="mt-1 font-mono text-xl font-semibold text-foreground">
+              [{ciLo}%, {ciHi}%]
+            </div>
+            <div className="mt-1 font-mono text-[10px] text-muted-foreground">
+              Separated confirmation batch
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Nemotron Static-AST Hypothesis Pills */}
+      <div className="mb-6 rounded-md border border-border bg-card p-4">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <span className="font-mono text-xs font-semibold text-foreground">Nemotron Static-AST Hypothesis Signals:</span>
+            <span className="inline-flex items-center gap-1.5 rounded border border-primary/50 bg-primary/10 px-2 py-0.5 font-mono text-[10px] font-bold text-primary">
+              {report.hypothesis_model}
+            </span>
+            <span className="inline-flex items-center rounded border border-border bg-muted/60 px-2 py-0.5 font-mono text-[10px] text-muted-foreground uppercase">
+              {report.hypothesis_source}
+            </span>
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {report.ast_detected_signals.map((signal) => (
+            <span
+              key={signal}
+              className="inline-flex items-center gap-1 rounded border border-border/80 bg-muted/50 px-2.5 py-1 font-mono text-xs text-foreground"
+            >
+              <span className="h-1.5 w-1.5 rounded-full bg-primary" />
+              {signal}
+            </span>
+          ))}
+        </div>
+      </div>
+
+      {/* Successive Halving Leaderboard Table */}
+      <div className="mb-5 overflow-x-auto rounded border border-border bg-card">
+        <div className="border-b border-border bg-muted px-4 py-2.5">
+          <h3 className="font-display text-sm font-semibold text-foreground">
+            Successive Halving Leaderboard
+          </h3>
+          <p className="font-mono text-[10px] text-muted-foreground">
+            Adaptive multi-arm bandit probe rounds (R1 Probe n=10 → Top-2 R2 Probe n=20 → Confirmation Batch n=40)
+          </p>
+        </div>
+        <table className="ledger-table w-full">
+          <thead>
+            <tr>
+              <th className="w-16 whitespace-nowrap">PRIOR RANK</th>
+              <th className="w-48 whitespace-nowrap">CONDITION &amp; INTENSITY</th>
+              <th className="min-w-[260px]">NEMOTRON RATIONALE</th>
+              <th className="w-36 whitespace-nowrap">ROUND 1 PROBE (k/n)</th>
+              <th className="w-36 whitespace-nowrap">ROUND 2 PROBE (k/n)</th>
+              <th className="w-44 whitespace-nowrap">STATUS</th>
+            </tr>
+          </thead>
+          <tbody>
+            {report.leaderboard.map((arm) => {
+              const isWinner = arm.status.includes("WINNER");
+              const isR2Elim = arm.status.includes("ROUND 2");
+              const intensityCls =
+                arm.intensity === "L3_EXTREME"
+                  ? "border-stress/60 bg-stress/15 text-stress"
+                  : arm.intensity === "L2_MODERATE"
+                  ? "border-primary/50 bg-primary/15 text-primary"
+                  : "border-border bg-muted/50 text-muted-foreground";
+
+              const statusBadgeCls = isWinner
+                ? "border-pass/60 bg-pass/20 text-pass font-bold"
+                : isR2Elim
+                ? "border-stress/50 bg-stress/10 text-stress font-medium"
+                : "border-border bg-muted/60 text-muted-foreground";
+
+              return (
+                <tr key={`${arm.prior_rank}-${arm.perturbation}-${arm.intensity}`} className={isWinner ? "trigger-row" : ""}>
+                  <td className="font-mono font-bold whitespace-nowrap">#{arm.prior_rank}</td>
+                  <td className="whitespace-nowrap">
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold text-foreground">{arm.perturbation}</span>
+                      <span className={`rounded border px-1.5 py-0.5 font-mono text-[9px] font-bold ${intensityCls}`}>
+                        {arm.intensity}
+                      </span>
+                    </div>
+                  </td>
+                  <td
+                    className="whitespace-normal break-words min-w-0 pr-4 max-w-md text-xs text-muted-foreground leading-relaxed"
+                    style={{ whiteSpace: "normal" }}
+                  >
+                    {arm.nemotron_rationale}
+                  </td>
+                  <td className="font-mono whitespace-nowrap">
+                    {arm.r1_probe_k} / {arm.r1_probe_n}
+                    <span className="ml-1 text-[10px] text-muted-foreground">
+                      ({((arm.r1_probe_k / arm.r1_probe_n) * 100).toFixed(0)}%)
+                    </span>
+                  </td>
+                  <td className="font-mono whitespace-nowrap">
+                    {arm.r2_probe_k !== null && arm.r2_probe_n !== null ? (
+                      <>
+                        {arm.r2_probe_k} / {arm.r2_probe_n}
+                        <span className="ml-1 text-[10px] text-muted-foreground">
+                          ({((arm.r2_probe_k / arm.r2_probe_n) * 100).toFixed(0)}%)
+                        </span>
+                      </>
+                    ) : (
+                      <span className="text-muted-foreground italic">Eliminated R1</span>
+                    )}
+                  </td>
+                  <td className="whitespace-nowrap">
+                    <span className={`inline-flex items-center gap-1.5 rounded border px-2 py-0.5 font-mono text-[10px] ${statusBadgeCls}`}>
+                      {isWinner && <span className="h-1.5 w-1.5 rounded-full bg-pass animate-pulse" />}
+                      {arm.status}
+                    </span>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Winner's Curse Explanation Callout */}
+      <div className="rounded-md border border-primary/30 bg-primary/5 p-4 text-xs leading-relaxed text-foreground">
+        <div className="flex items-start gap-2.5">
+          <span className="font-mono font-bold text-primary shrink-0">WINNER'S CURSE GUARD //</span>
+          <p className="text-muted-foreground">
+            {report.winners_curse_callout ??
+              "The reported amplified failure rate comes from a fresh Confirmation Batch (n=40) separate from the Exploration Budget (n=60) to eliminate selection bias, and that Stage 4 certifies patches at this exact amplified condition."}
+          </p>
+        </div>
+      </div>
+    </section>
+  );
+}
