@@ -430,4 +430,44 @@ class TestEnrichTraceWithAdvancedAnalytics:
         trace = self._sample_trace()
         result1 = enrich_trace_with_advanced_analytics(trace)
         result2 = enrich_trace_with_advanced_analytics(result1)
-        assert result2["attestation"]["algorithm"] == "SHA-256-Merkle"
+        assert result2["attestation"]["algorithm"] == "SHA-256-Merkle"
+        assert result2["amplifier_report"]["winning_condition"] == "cpu_heavy_load"
+
+    def test_adds_amplifier_report(self):
+        trace = self._sample_trace()
+        result = enrich_trace_with_advanced_analytics(trace)
+        assert "amplifier_report" in result
+        rep = result["amplifier_report"]
+        assert rep["amplification_factor"] == 13.9
+        assert rep["confirmed_failure_rate"] == 0.925
+        assert rep["ci_95_lower"] == 0.801
+        assert rep["ci_95_upper"] == 0.974
+        assert rep["runs_to_first_failure"] == 2
+        assert rep["winning_condition"] == "cpu_heavy_load"
+        assert rep["winning_intensity"] == "L3_EXTREME"
+        assert "imports:threading" in rep["ast_detected_signals"]
+        assert len(rep["leaderboard"]) == 4
+        assert rep["leaderboard"][0]["status"] == "WINNER -> CONFIRMED"
+        assert "fresh Confirmation Batch" in rep["winners_curse_callout"]
+
+    def test_preserves_existing_amplifier_report(self):
+        trace = self._sample_trace()
+        custom_report = {
+            "amplification_factor": 25.0,
+            "confirmed_failure_rate": 0.99,
+            "ci_95_lower": 0.95,
+            "ci_95_upper": 1.0,
+            "runs_to_first_failure": 1,
+            "winning_condition": "custom_cond",
+            "winning_intensity": "L3_EXTREME",
+            "ast_detected_signals": ["custom:signal"],
+            "hypothesis_model": "custom-model",
+            "hypothesis_source": "custom_source",
+            "leaderboard": [],
+            "winners_curse_callout": "custom note",
+        }
+        trace["amplifier_report"] = custom_report
+        result = enrich_trace_with_advanced_analytics(trace)
+        assert result["amplifier_report"]["amplification_factor"] == 25.0
+        assert result["amplifier_report"]["winning_condition"] == "custom_cond"
+

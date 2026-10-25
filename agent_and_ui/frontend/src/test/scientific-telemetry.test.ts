@@ -173,4 +173,48 @@ describe("Phase 7 scientific UI telemetry badges and labels", () => {
     expect(screen.getAllByText(/holm_adjusted_p_value/i).length).toBeGreaterThan(0);
     unmount();
   });
-});
+
+  it("renders Flake Amplifier Leaderboard panel with amplification factor, confirmation CI, and candidate arms accurately", async () => {
+    const React = (await import("react")).default;
+    const { FlakeAmplifierPanel } = await import("@/components/scientific-telemetry");
+    const { render, screen } = await import("@testing-library/react");
+    const { unmount } = render(React.createElement(FlakeAmplifierPanel, { trace: FALLBACK_TRACE }));
+
+    // Verify Title and Super-title
+    expect(screen.getByText(/Stage 2A — Flake Amplifier/i)).toBeInTheDocument();
+    expect(screen.getByText(/STAGE 02A \/\/ ADAPTIVE BANDIT SEARCH/i)).toBeInTheDocument();
+
+    // Verify Header Banner Amplification Summary and CI
+    expect(screen.getAllByText(/13.9×|13.9x/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/92.5%/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/6.7%/i).length).toBeGreaterThan(0);
+    expect(screen.getByText(/\[80.1%, 97.4%\]/i)).toBeInTheDocument();
+    expect(screen.getByText(/Runs to First Failure:/i)).toBeInTheDocument();
+    expect(screen.getByText(/CONFIRMED AMPLIFIED CONDITION: cpu_heavy_load @ L3_EXTREME/i)).toBeInTheDocument();
+
+    // Verify Nemotron Static-AST Hypothesis Pills
+    expect(screen.getByText(/nvidia\/Nemotron-3_5-Lightning/i)).toBeInTheDocument();
+    expect(screen.getByText(/nemotron_static_ast/i)).toBeInTheDocument();
+    expect(screen.getByText(/imports:threading/i)).toBeInTheDocument();
+    expect(screen.getByText(/calls:time.sleep/i)).toBeInTheDocument();
+
+    // Verify Leaderboard rows and probe counts
+    expect(screen.getByText(/#1/i)).toBeInTheDocument();
+    expect(screen.getByText(/WINNER -> CONFIRMED/i)).toBeInTheDocument();
+    expect(screen.getByText(/^9 \/ 10/i)).toBeInTheDocument();
+    expect(screen.getByText(/^19 \/ 20/i)).toBeInTheDocument();
+
+    expect(screen.getByText(/#2/i)).toBeInTheDocument();
+    expect(screen.getByText(/ELIMINATED ROUND 2/i)).toBeInTheDocument();
+    expect(screen.getByText(/^6 \/ 10/i)).toBeInTheDocument();
+    expect(screen.getByText(/^9 \/ 20/i)).toBeInTheDocument();
+
+    expect(screen.getAllByText(/ELIMINATED ROUND 1/i).length).toBeGreaterThanOrEqual(2);
+    expect(screen.getAllByText(/Eliminated R1/i).length).toBeGreaterThanOrEqual(2);
+
+    // Verify Winner's Curse Explanation Callout
+    expect(screen.getByText(/fresh Confirmation Batch \(n=40\) separate from the Exploration Budget \(n=60\)/i)).toBeInTheDocument();
+
+    unmount();
+  });
+});
