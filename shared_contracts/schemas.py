@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import Any, Literal
+from typing import Any, Literal, Self
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class PerturbationType(str, Enum):
@@ -44,6 +44,13 @@ class AmplifierArmResult(BaseModel):
     )
 
 
+WINNERS_CURSE_CALLOUT = (
+    "The reported amplified failure rate comes from a fresh Confirmation Batch (n=40) "
+    "separate from the Exploration Budget (n=60) to eliminate selection bias (Winner's Curse), "
+    "and Stage 4 certifies patches at this exact amplified condition."
+)
+
+
 class FlakeAmplifierReport(BaseModel):
     """Complete diagnostic report from the Flake Amplifier successive halving search."""
     enabled: bool = Field(default=True, description="Whether Flake Amplifier search was active")
@@ -60,6 +67,7 @@ class FlakeAmplifierReport(BaseModel):
     winning_arm_id: str = Field(..., description="Arm identifier that maximized flake amplification")
     winning_perturbation: PerturbationType = Field(..., description="Winning perturbation type")
     winning_intensity: PerturbationIntensity = Field(..., description="Winning intensity level")
+    winning_condition: str | None = Field(default=None, description="UI alias for winning_perturbation")
     baseline_failure_rate: float = Field(..., description="Baseline failure rate before amplification")
     confirmation_runs: int = Field(..., description="Confirmed runs executed on the winning arm")
     confirmation_failures: int = Field(..., description="Confirmed failures observed on the winning arm")
@@ -68,7 +76,25 @@ class FlakeAmplifierReport(BaseModel):
     confirmed_ci_95_upper: float = Field(..., description="Upper bound of 95% Wilson CI for confirmed rate")
     amplification_factor: float = Field(..., description="Ratio of confirmed failure rate to baseline failure rate")
     runs_to_first_failure: int | None = Field(default=None, description="Number of runs until the first failure appeared")
+    winners_curse_callout: str = Field(
+        default=WINNERS_CURSE_CALLOUT,
+        description="Callout explaining winner's curse mitigation",
+    )
+    selection_bias_callout: str = Field(
+        default=WINNERS_CURSE_CALLOUT,
+        description="Alias for winners_curse_callout",
+    )
     leaderboard: list[AmplifierArmResult] = Field(default_factory=list, description="Ranked exploration leaderboard of all arms")
+
+    @model_validator(mode="after")
+    def _populate_winning_condition(self) -> Self:
+        if not self.winning_condition:
+            self.winning_condition = (
+                self.winning_perturbation.value
+                if hasattr(self.winning_perturbation, "value")
+                else str(self.winning_perturbation)
+            )
+        return self
 
     @property
     def ranked_arms(self) -> list[AmplifierArmResult]:
