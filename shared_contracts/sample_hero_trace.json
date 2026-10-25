@@ -1,6 +1,6 @@
 {
   "trace_id": "coinflip-corpus-hero-trace",
-  "timestamp_utc": "2026-10-21T08:31:31.918152+00:00",
+  "timestamp_utc": "2026-10-24T11:14:40.093432+00:00",
   "is_recorded_replay": true,
   "project_name": "example-service",
   "test_identifier": "example-service::test_worker.py",
@@ -53,7 +53,8 @@
       "absolute_rate_delta": 0.0,
       "is_statistically_significant": false,
       "holm_adjusted_p_value": 1.0
-    }
+    },
+    "intensity": "L2_MODERATE"
   },
   "stage2_ledger": [
     {
@@ -105,7 +106,8 @@
         "absolute_rate_delta": 0.0,
         "is_statistically_significant": false,
         "holm_adjusted_p_value": 1.0
-      }
+      },
+      "intensity": "L2_MODERATE"
     },
     {
       "perturbation": "shuffle_order",
@@ -151,7 +153,8 @@
         "absolute_rate_delta": 0.0,
         "is_statistically_significant": false,
         "holm_adjusted_p_value": 1.0
-      }
+      },
+      "intensity": "L2_MODERATE"
     },
     {
       "perturbation": "seed_change",
@@ -197,7 +200,8 @@
         "absolute_rate_delta": 0.0,
         "is_statistically_significant": false,
         "holm_adjusted_p_value": 1.0
-      }
+      },
+      "intensity": "L2_MODERATE"
     },
     {
       "perturbation": "clock_shift",
@@ -243,7 +247,8 @@
         "absolute_rate_delta": 0.0,
         "is_statistically_significant": false,
         "holm_adjusted_p_value": 1.0
-      }
+      },
+      "intensity": "L2_MODERATE"
     },
     {
       "perturbation": "network_cut",
@@ -289,21 +294,24 @@
         "absolute_rate_delta": 0.0,
         "is_statistically_significant": false,
         "holm_adjusted_p_value": 1.0
-      }
+      },
+      "intensity": "L2_MODERATE"
     },
     {
       "perturbation": "cpu_half_cores",
       "label": "Restricted CPU cores / affinity",
       "total_runs": 25,
-      "failures": 0,
-      "passes": 25,
-      "failure_rate": 0.0,
-      "ci_95_lower": 0.0,
-      "ci_95_upper": 0.1332,
+      "failures": 1,
+      "passes": 24,
+      "failure_rate": 0.04,
+      "ci_95_lower": 0.0071,
+      "ci_95_upper": 0.1954,
       "execution_backend": "local_isolated",
-      "sample_failure_logs": [],
+      "sample_failure_logs": [
+        "Traceback (most recent call last):\n  File \"/Users/vishwajithmbhat/Desktop/AI Projects/coinflip/sandbox_engine/_worker_pool.py\", line 168, in run_worker_chunk\n    f()\n    ~^^\n  File \"/private/var/folders/7b/ngs8ygfn3_3crnsjzmpfckg00000gn/T/coinflip_batch_klbrzmzd/test_worker.py\", line 28, in test_job_finishes\n    assert worker.result_ready is True, \"Background worker timed out before completion\"\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: Background worker timed out before completion"
+      ],
       "run_dots": [
-        true,
+        false,
         true,
         true,
         true,
@@ -330,32 +338,28 @@
         true
       ],
       "causal_metrics": {
-        "fisher_p_value": 1.0,
-        "relative_risk": 1.1961,
-        "absolute_rate_delta": 0.0,
+        "fisher_p_value": 0.45454545,
+        "relative_risk": 3.5882,
+        "absolute_rate_delta": 0.04,
         "is_statistically_significant": false,
         "holm_adjusted_p_value": 1.0
-      }
+      },
+      "intensity": "L1_MILD"
     },
     {
       "perturbation": "cpu_heavy_load",
       "label": "Heavy background CPU contention (4x load)",
-      "total_runs": 25,
-      "failures": 25,
+      "total_runs": 20,
+      "failures": 20,
       "passes": 0,
       "failure_rate": 1.0,
-      "ci_95_lower": 0.8668,
+      "ci_95_lower": 0.8389,
       "ci_95_upper": 1.0,
       "execution_backend": "local_isolated",
       "sample_failure_logs": [
-        "Traceback (most recent call last):\n  File \"/Users/vishwajithmbhat/Desktop/AI Projects/coinflip/sandbox_engine/_worker_pool.py\", line 149, in run_worker_chunk\n    f()\n    ~^^\n  File \"/private/var/folders/7b/ngs8ygfn3_3crnsjzmpfckg00000gn/T/coinflip_batch_kaxvmwqn/test_worker.py\", line 28, in test_job_finishes\n    assert worker.result_ready is True, \"Background worker timed out before completion\"\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: Background worker timed out before completion"
+        "Traceback (most recent call last):\n  File \"/Users/vishwajithmbhat/Desktop/AI Projects/coinflip/sandbox_engine/_worker_pool.py\", line 168, in run_worker_chunk\n    f()\n    ~^^\n  File \"/private/var/folders/7b/ngs8ygfn3_3crnsjzmpfckg00000gn/T/coinflip_batch_8tj98ts4/test_worker.py\", line 28, in test_job_finishes\n    assert worker.result_ready is True, \"Background worker timed out before completion\"\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: Background worker timed out before completion"
       ],
       "run_dots": [
-        false,
-        false,
-        false,
-        false,
-        false,
         false,
         false,
         false,
@@ -383,7 +387,8 @@
         "absolute_rate_delta": 1.0,
         "is_statistically_significant": true,
         "holm_adjusted_p_value": 0.0
-      }
+      },
+      "intensity": "L3_EXTREME"
     }
   ],
   "triggering_stress_condition": "cpu_heavy_load",
@@ -421,7 +426,8 @@
           true,
           true
         ],
-        "causal_metrics": null
+        "causal_metrics": null,
+        "intensity": "L2_MODERATE"
       },
       "stress_cert_result": {
         "perturbation": "cpu_heavy_load",
@@ -434,7 +440,7 @@
         "ci_95_upper": 1.0,
         "execution_backend": "local_isolated",
         "sample_failure_logs": [
-          "Traceback (most recent call last):\n  File \"/Users/vishwajithmbhat/Desktop/AI Projects/coinflip/sandbox_engine/_worker_pool.py\", line 149, in run_worker_chunk\n    f()\n    ~^^\n  File \"/private/var/folders/7b/ngs8ygfn3_3crnsjzmpfckg00000gn/T/coinflip_batch_0wrsfvjr/test_worker.py\", line 29, in test_job_finishes\n    assert worker.result_ready is True, \"Background worker timed out before completion\"\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: Background worker timed out before completion"
+          "Traceback (most recent call last):\n  File \"/Users/vishwajithmbhat/Desktop/AI Projects/coinflip/sandbox_engine/_worker_pool.py\", line 168, in run_worker_chunk\n    f()\n    ~^^\n  File \"/private/var/folders/7b/ngs8ygfn3_3crnsjzmpfckg00000gn/T/coinflip_batch_xe57u8qi/test_worker.py\", line 29, in test_job_finishes\n    assert worker.result_ready is True, \"Background worker timed out before completion\"\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: Background worker timed out before completion"
         ],
         "run_dots": [
           false,
@@ -453,9 +459,10 @@
           false,
           false
         ],
-        "causal_metrics": null
+        "causal_metrics": null,
+        "intensity": "L3_EXTREME"
       },
-      "upper_bound_95_normal": 0.2,
+      "upper_bound_95_normal": 0.181,
       "upper_bound_95_stress": 1.0,
       "target_limit": 0.005,
       "verdict": "REJECTED",
@@ -470,6 +477,7 @@
         "no_bare_exception_swallowing": true,
         "sleep_inflation_detected": true,
         "synchronization_primitives_detected": [
+          "join",
           "t.join"
         ],
         "summary": "Warning: Sleep Inflation Detected. Candidate patch increased sleep duration from 0.0060s to 0.0090s without adding deterministic synchronization. Allowed to proceed to Stage 4 Dual-Condition Gate for empirical stress verification."
@@ -537,7 +545,8 @@
           true,
           true
         ],
-        "causal_metrics": null
+        "causal_metrics": null,
+        "intensity": "L2_MODERATE"
       },
       "stress_cert_result": {
         "perturbation": "cpu_heavy_load",
@@ -582,10 +591,11 @@
           true,
           true
         ],
-        "causal_metrics": null
+        "causal_metrics": null,
+        "intensity": "L3_EXTREME"
       },
-      "upper_bound_95_normal": 0.1,
-      "upper_bound_95_stress": 0.1,
+      "upper_bound_95_normal": 0.095,
+      "upper_bound_95_stress": 0.095,
       "target_limit": 0.005,
       "verdict": "CERTIFIED",
       "rejection_reason": null,
@@ -599,9 +609,10 @@
         "no_bare_exception_swallowing": true,
         "sleep_inflation_detected": false,
         "synchronization_primitives_detected": [
+          "wait_for_completion",
           "worker.wait_for_completion"
         ],
-        "summary": "Verified Clean: All assertions preserved (1/1), no suppression detected, and deterministic synchronization verified [worker.wait_for_completion, t.join]."
+        "summary": "Verified Clean: All assertions preserved (1/1), no suppression detected, and deterministic synchronization verified [wait_for_completion, worker.wait_for_completion, join, t.join]."
       },
       "sprt_telemetry": {
         "enabled": true,
@@ -623,20 +634,20 @@
   "models_used": {},
   "race_timeline": {
     "measured_quiet_worker_ms": 0.42,
-    "measured_quiet_assert_ms": 6.69,
-    "quiet_margin_ms": 6.27,
-    "measured_stress_worker_ms": 49.98,
-    "measured_stress_assert_ms": 43.58,
+    "measured_quiet_assert_ms": 6.31,
+    "quiet_margin_ms": 5.89,
+    "measured_stress_worker_ms": 43.16,
+    "measured_stress_assert_ms": 36.76,
     "stress_race_violation_ms": -6.4,
-    "explanation": "Quiet baseline displays a positive safety margin of +6.27ms (worker finishes in 0.42ms before assert fires at 6.69ms). Under CPU heavy load, thread contention delays worker completion to 49.98ms, producing a 6.40ms race violation (assert fires 6.40ms before background worker completes)."
+    "explanation": "Quiet baseline displays a positive safety margin of +5.89ms (worker finishes in 0.42ms before assert fires at 6.31ms). Under CPU heavy load, thread contention delays worker completion to 43.16ms, producing a 6.40ms race violation (assert fires 6.40ms before background worker completes)."
   },
   "attestation": {
     "algorithm": "SHA-256-Merkle",
     "repo_snapshot_sha256": "45566a574d1623ea27a1b90b636515b5bbbbadc33e9e57db0e49e1dcf06f5b97",
     "patch_diff_sha256": "c5a4b9d19641053af8caaa0d809a021d0de4b6e73204a8daca8ab15afe522f15",
-    "experiment_ledger_merkle_root": "af1afd38c7fdca7cf93c751695a21b3f4ac63256973095f6f309250f00f377ac",
-    "certificate_digest_sha256": "a14f1b1f4093e415177f2359322d40a02106086bbd747c129dafd302965000ff",
-    "hmac_signature": "13c93ee4ec33897560fdbb9bc65f41aad899c427600b7b32ae46494c38b67d67",
+    "experiment_ledger_merkle_root": "d3837c813f2ed515af48a7c618304eeea28b346c8b1a483c87722be57b343cfb",
+    "certificate_digest_sha256": "572d4121f71b961cbe5bd0851b95509e6214b67c37e4637babb9590c07b93e01",
+    "hmac_signature": "9c0a7e616cfb34520c366ce0fdaaeb195025438f24bf4acefd57df2395be547d",
     "signing_mode": "hmac_sha256_server_secret",
     "verified": true
   },
@@ -652,6 +663,11 @@
       "fallback_used": true,
       "error": "Both nvidia/nemotron-3-super-120b-a12b and nvidia/Nemotron-3_5-Lightning failed. Last error: Connection error."
     },
+    "hypothesis": {
+      "live_api_succeeded": false,
+      "error": "All model calls failed. Last error: Connection error.",
+      "fallback_used": true
+    },
     "last_call": {
       "live_api_succeeded": false,
       "completion_id": "",
@@ -662,5 +678,93 @@
       "error": "Both nvidia/nemotron-3-super-120b-a12b and nvidia/Nemotron-3_5-Lightning failed. Last error: Connection error."
     }
   },
-  "trace_origin": "recorded_execution"
+  "trace_origin": "recorded_execution",
+  "amplifier_report": {
+    "enabled": true,
+    "hypothesis_model": "nvidia/Nemotron-3_5-Lightning",
+    "hypothesis_completion_id": null,
+    "hypothesis_source": "ast_heuristic_fallback",
+    "ast_detected_signals": [
+      "imports:threading",
+      "imports:time",
+      "calls:Thread.start",
+      "calls:time.sleep"
+    ],
+    "search_algorithm": "successive_halving_thompson",
+    "exploration_budget": 24,
+    "confirmation_budget": 20,
+    "winning_arm_id": "cpu_heavy_load:L3_EXTREME",
+    "winning_perturbation": "cpu_heavy_load",
+    "winning_intensity": "L3_EXTREME",
+    "baseline_failure_rate": 0.0,
+    "confirmation_runs": 20,
+    "confirmation_failures": 20,
+    "confirmed_failure_rate": 1.0,
+    "confirmed_ci_95_lower": 0.8389,
+    "confirmed_ci_95_upper": 1.0,
+    "amplification_factor": 100.0,
+    "runs_to_first_failure": 1,
+    "leaderboard": [
+      {
+        "arm_id": "cpu_heavy_load:L3_EXTREME",
+        "perturbation": "cpu_heavy_load",
+        "intensity": "L3_EXTREME",
+        "nemotron_prior_rank": 1,
+        "nemotron_rationale": "Tight GIL thrashing (1µs) and background burner threads maximize thread race exposure during unsynchronized waits.",
+        "round1_runs": 3,
+        "round1_failures": 3,
+        "round2_runs": 6,
+        "round2_failures": 6,
+        "total_exploration_runs": 9,
+        "total_exploration_failures": 9,
+        "exploration_failure_rate": 1.0,
+        "eliminated_in_round": null
+      },
+      {
+        "arm_id": "cpu_half_cores:L1_MILD",
+        "perturbation": "cpu_half_cores",
+        "intensity": "L1_MILD",
+        "nemotron_prior_rank": 2,
+        "nemotron_rationale": "Core starvation increases preemption latency, exposing timing assumptions in thread completion.",
+        "round1_runs": 3,
+        "round1_failures": 0,
+        "round2_runs": 6,
+        "round2_failures": 0,
+        "total_exploration_runs": 9,
+        "total_exploration_failures": 0,
+        "exploration_failure_rate": 0.0,
+        "eliminated_in_round": 2
+      },
+      {
+        "arm_id": "clock_shift:L2_MODERATE",
+        "perturbation": "clock_shift",
+        "intensity": "L2_MODERATE",
+        "nemotron_prior_rank": 3,
+        "nemotron_rationale": "Wall-clock shift tests whether thread timeouts rely on wall-clock instead of monotonic time.",
+        "round1_runs": 3,
+        "round1_failures": 0,
+        "round2_runs": 0,
+        "round2_failures": 0,
+        "total_exploration_runs": 3,
+        "total_exploration_failures": 0,
+        "exploration_failure_rate": 0.0,
+        "eliminated_in_round": 1
+      },
+      {
+        "arm_id": "shuffle_order:L2_MODERATE",
+        "perturbation": "shuffle_order",
+        "intensity": "L2_MODERATE",
+        "nemotron_prior_rank": 4,
+        "nemotron_rationale": "Permuting test execution order reveals shared state leaks or unjoined daemon threads.",
+        "round1_runs": 3,
+        "round1_failures": 0,
+        "round2_runs": 0,
+        "round2_failures": 0,
+        "total_exploration_runs": 3,
+        "total_exploration_failures": 0,
+        "exploration_failure_rate": 0.0,
+        "eliminated_in_round": 1
+      }
+    ]
+  }
 }

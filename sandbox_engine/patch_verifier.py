@@ -25,6 +25,7 @@ from sandbox_engine.math_utils import (
 from shared_contracts.schemas import (
     BatchExperimentResult,
     CandidateFixEvaluation,
+    PerturbationIntensity,
     PerturbationType,
     SPRTExecutionTelemetry,
 )
@@ -68,6 +69,7 @@ class Stage4PatchVerifier:
         root_cause_diagnosis: str,
         patch_content: str | dict[str, str],
         triggering_stress_condition: PerturbationType = PerturbationType.CPU_HEAVY_LOAD,
+        triggering_intensity: PerturbationIntensity | None = None,
         cert_runs: int = 1000,
         target_limit: float = 0.005,
         target_file_rel: str | None = None,
@@ -178,6 +180,7 @@ class Stage4PatchVerifier:
                     stress_probe = await runner.run_batch(
                         perturbation=triggering_stress_condition,
                         num_runs=15,
+                        intensity=triggering_intensity,
                     )
                     normal_result = await runner.run_batch(
                         perturbation=PerturbationType.BASELINE,
@@ -216,6 +219,7 @@ class Stage4PatchVerifier:
                     stress_result = await runner.run_batch(
                         perturbation=triggering_stress_condition,
                         num_runs=eval_runs,
+                        intensity=triggering_intensity,
                     )
                     sprt_telemetry = wald_sprt_check(
                         failures=stress_result.failures,
@@ -235,6 +239,7 @@ class Stage4PatchVerifier:
                 stress_probe = await runner.run_batch(
                     perturbation=triggering_stress_condition,
                     num_runs=probe_chunk_size,
+                    intensity=triggering_intensity,
                 )
 
                 sprt_eval = wald_sprt_check(
@@ -271,6 +276,7 @@ class Stage4PatchVerifier:
                         remaining_res = await runner.run_batch(
                             perturbation=triggering_stress_condition,
                             num_runs=remaining_stress,
+                            intensity=triggering_intensity,
                         )
                         # Aggregate stress probe + remaining
                         total_runs = stress_probe.total_runs + remaining_res.total_runs
@@ -279,6 +285,7 @@ class Stage4PatchVerifier:
                         ci_stress = wilson_ci_95(failures, total_runs)
                         stress_result = BatchExperimentResult(
                             perturbation=triggering_stress_condition,
+                            intensity=triggering_intensity,
                             label=stress_probe.label,
                             total_runs=total_runs,
                             failures=failures,
@@ -323,6 +330,7 @@ class Stage4PatchVerifier:
                 stress_result = await runner.run_batch(
                     perturbation=triggering_stress_condition,
                     num_runs=cert_runs,
+                    intensity=triggering_intensity,
                 )
                 sprt_telemetry = wald_sprt_check(
                     failures=stress_result.failures,

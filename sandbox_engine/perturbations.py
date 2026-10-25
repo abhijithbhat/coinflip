@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from shared_contracts.schemas import PerturbationType
+from shared_contracts.schemas import PerturbationIntensity, PerturbationType
 
 HOOKS_MODULE_PATH = Path(__file__).parent / "_pytest_hooks.py"
 
@@ -24,11 +24,32 @@ PERTURBATION_LABELS: dict[PerturbationType, str] = {
 }
 
 
+def resolve_default_intensity(
+    perturbation: PerturbationType,
+    intensity: PerturbationIntensity | str | None = None,
+) -> PerturbationIntensity:
+    """Resolves perturbation intensity, defaulting to L3_EXTREME for CPU_HEAVY_LOAD and L1_MILD for CPU_HALF_CORES."""
+    if intensity is not None:
+        if isinstance(intensity, PerturbationIntensity):
+            return intensity
+        try:
+            return PerturbationIntensity(str(intensity).strip())
+        except ValueError:
+            pass
+
+    if perturbation == PerturbationType.CPU_HEAVY_LOAD:
+        return PerturbationIntensity.L3_EXTREME
+    elif perturbation == PerturbationType.CPU_HALF_CORES:
+        return PerturbationIntensity.L1_MILD
+    return PerturbationIntensity.L2_MODERATE
+
+
 @dataclass
 class PerturbationContext:
     """Execution context generated for a single test run under a perturbation."""
     perturbation: PerturbationType
     label: str
+    intensity: PerturbationIntensity = PerturbationIntensity.L2_MODERATE
     env_vars: dict[str, str] = field(default_factory=dict)
     pytest_args: list[str] = field(default_factory=list)
     needs_external_cpu_stress: bool = False
@@ -43,6 +64,7 @@ def build_perturbation_context(
     perturbation: PerturbationType,
     run_id: int,
     base_seed: int = 1000,
+    intensity: PerturbationIntensity | str | None = None,
 ) -> PerturbationContext:
     """Generates the environment variables and pytest arguments for a given run under a perturbation.
 
@@ -50,12 +72,17 @@ def build_perturbation_context(
         perturbation: The target PerturbationType.
         run_id: The run index within the batch (used to derive deterministic variant seeds).
         base_seed: Base seed for reproducible perturbation variance.
+        intensity: Optional intensity tier (L1_MILD, L2_MODERATE, L3_EXTREME).
 
     Returns:
         PerturbationContext: Encapsulating env vars, pytest arguments, and stress flags.
     """
+    resolved_intensity = resolve_default_intensity(perturbation, intensity)
     label = get_perturbation_label(perturbation)
-    env: dict[str, str] = {}
+    env: dict[str, str] = {
+        "COINFLIP_INTENSITY": resolved_intensity.value,
+        "COINFLIP_PERTURBATION": perturbation.value,
+    }
     pytest_args: list[str] = []
     external_cpu_stress = False
 
@@ -76,8 +103,13 @@ def build_perturbation_context(
         env["COINFLIP_RUN_ID"] = str(run_id)
 
     elif perturbation == PerturbationType.CLOCK_SHIFT:
-        # Shift clock forward by 1 hour (3600 seconds)
-        env["COINFLIP_CLOCK_SHIFT_SEC"] = "3600.0"
+        if resolved_intensity == PerturbationIntensity.L1_MILD:
+            offset = "60.0"
+        elif resolved_intensity == PerturbationIntensity.L3_EXTREME:
+            offset = "86400.0"
+        else:
+            offset = "3600.0"
+        env["COINFLIP_CLOCK_SHIFT_SEC"] = offset
 
     elif perturbation == PerturbationType.NETWORK_CUT:
         env["COINFLIP_NET_CUT"] = "1"
@@ -96,6 +128,7 @@ def build_perturbation_context(
     return PerturbationContext(
         perturbation=perturbation,
         label=label,
+        intensity=resolved_intensity,
         env_vars=env,
         pytest_args=pytest_args,
         needs_external_cpu_stress=external_cpu_stress,

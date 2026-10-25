@@ -11,6 +11,8 @@ Model Routing:
 
 from __future__ import annotations
 
+import ast
+import json
 import logging
 import os
 import re
@@ -20,7 +22,12 @@ from typing import Any
 from dotenv import load_dotenv
 from openai import OpenAI
 
-from shared_contracts.schemas import BatchExperimentResult, CandidateFixEvaluation
+from shared_contracts.schemas import (
+    BatchExperimentResult,
+    CandidateFixEvaluation,
+    PerturbationIntensity,
+    PerturbationType,
+)
 
 load_dotenv()
 logger = logging.getLogger("sandbox_engine.llm_bridge")
@@ -50,10 +57,13 @@ class NemotronBridge:
         self.last_call_metadata: dict[str, Any] = {}
         self.summarize_call_metadata: dict[str, Any] = {}
         self.diagnose_call_metadata: dict[str, Any] = {}
+        self.hypothesis_call_metadata: dict[str, Any] = {}
+        self.models_used: dict[str, str] = {}
+        self.invoked_models: list[str] = []
         self._check_for_external_agent()
 
         self._client: OpenAI | None = None
-        if not self._external_agent and self.api_key:
+        if self.api_key:
             self._client = OpenAI(
                 api_key=self.api_key,
                 base_url=self.base_url,
@@ -78,7 +88,8 @@ class NemotronBridge:
         temperature: float = 0.2,
     ) -> str:
         """Executes a chat completion call with error handling and fallback model routing."""
-        if not self._client:
+        client = getattr(self, "client", None) or self._client
+        if not client:
             raise RuntimeError("Nebius API key is not configured in .env or environment")
 
         target_models = [model]
@@ -88,7 +99,7 @@ class NemotronBridge:
         last_error: Exception | None = None
         for m in target_models:
             try:
-                resp = self._client.chat.completions.create(
+                resp = client.chat.completions.create(
                     model=m,
                     messages=messages,  # type: ignore[arg-type]
                     max_tokens=max_tokens,
@@ -355,3 +366,426 @@ class NemotronBridge:
                 patched_code = test_code
 
             return title, diagnosis, patched_code
+
+    def rank_amplification_hypotheses(
+        self,
+        test_code: str,
+        target_code: str = "",
+        fast_offline: bool = False,
+    ) -> dict[str, Any]:
+        """Analyzes test and target code to rank top 4 perturbation arms via AST signals and Nemotron 3.5 Lightning.
+
+        Args:
+            test_code: Source code of the flaky test.
+            target_code: Companion service or production code under test.
+            fast_offline: If True, bypass remote LLM call and return AST heuristic ranking immediately.
+
+        Returns:
+            dict[str, Any]: Dict containing hypothesis_model, hypothesis_completion_id,
+                            hypothesis_source, ast_detected_signals, and candidate_arms list.
+        """
+        # Step 1: Fast AST static analyzer
+        ast_signals = extract_ast_signals(test_code=test_code, target_code=target_code)
+
+        if fast_offline or not self.api_key:
+            fallback_arms = _heuristic_hypotheses(ast_signals)
+            return {
+                "hypothesis_model": MODEL_FAST,
+                "hypothesis_completion_id": None,
+                "completion_id": None,
+                "hypothesis_source": "ast_heuristic_fallback",
+                "ast_detected_signals": ast_signals,
+                "candidate_arms": fallback_arms,
+                "hypotheses": fallback_arms,
+            }
+
+        if self._external_agent and hasattr(self._external_agent, "rank_amplification_hypotheses"):
+            res = self._external_agent.rank_amplification_hypotheses(test_code, target_code)
+            if hasattr(self._external_agent, "hypothesis_call_metadata"):
+                self.hypothesis_call_metadata = self._external_agent.hypothesis_call_metadata
+            if hasattr(self._external_agent, "last_call_metadata"):
+                self.last_call_metadata = self._external_agent.last_call_metadata
+            return res
+
+        # Step 2: Query NVIDIA Nemotron-3.5-Lightning on Nebius Token Factory
+        prompt = (
+            "You are the Flake Amplifier Prior Ranking Agent powered by NVIDIA Nemotron-3.5-Lightning.\n"
+            "Analyze the test code and AST signals below to identify the root flake archetype.\n"
+            "Rank the TOP 4 candidate (perturbation, intensity) arms most likely to trigger and amplify test failures.\n\n"
+            f"AST SIGNALS: {', '.join(ast_signals)}\n\n"
+            "TEST CODE:\n```python\n"
+            f"{test_code[:1500]}\n```\n\n"
+            + (f"TARGET CODE:\n```python\n{target_code[:1500]}\n```\n\n" if target_code else "")
+            + "Available perturbations: cpu_heavy_load, cpu_half_cores, seed_change, shuffle_order, clock_shift, network_cut.\n"
+            "Available intensities: L1_MILD, L2_MODERATE, L3_EXTREME.\n\n"
+            "Return ONLY a JSON array with exactly 4 items in descending order of prior likelihood:\n"
+            "[\n"
+            '  {"perturbation": "...", "intensity": "...", "rationale": "One-sentence rationale."}\n'
+            "]"
+        )
+
+        try:
+            raw_response = self._call_model(
+                model=MODEL_FAST,
+                fallback_model=MODEL_FAST_FALLBACK,
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=350,
+                temperature=0.0,
+            )
+            # Parse fenced or raw JSON array
+            json_text = raw_response.strip()
+            if "```json" in json_text:
+                json_text = json_text.split("```json", 1)[1].split("```", 1)[0].strip()
+            elif "```" in json_text:
+                json_text = json_text.split("```", 1)[1].split("```", 1)[0].strip()
+
+            start_idx = json_text.find("[")
+            end_idx = json_text.rfind("]")
+            if start_idx != -1 and end_idx != -1:
+                json_text = json_text[start_idx : end_idx + 1]
+
+            parsed_list = json.loads(json_text)
+            if isinstance(parsed_list, list) and len(parsed_list) >= 4:
+                candidate_arms: list[dict[str, Any]] = []
+                for idx, item in enumerate(parsed_list[:4], start=1):
+                    pert = PerturbationType(item["perturbation"])
+                    intensity = PerturbationIntensity(item["intensity"])
+                    rationale = str(item.get("rationale", "")).strip()
+                    arm_id = f"{pert.value}:{intensity.value}"
+                    candidate_arms.append({
+                        "arm_id": arm_id,
+                        "perturbation": pert,
+                        "intensity": intensity,
+                        "nemotron_prior_rank": idx,
+                        "prior_rank": idx,
+                        "nemotron_rationale": rationale or f"Ranked #{idx} by Nemotron prior.",
+                        "rationale": rationale or f"Ranked #{idx} by Nemotron prior.",
+                    })
+
+                completion_id = self.last_call_metadata.get("completion_id")
+                self.models_used["hypothesis_prior"] = MODEL_FAST
+                if MODEL_FAST not in self.invoked_models:
+                    self.invoked_models.append(MODEL_FAST)
+                self.hypothesis_call_metadata = dict(self.last_call_metadata)
+
+                return {
+                    "hypothesis_model": MODEL_FAST,
+                    "hypothesis_completion_id": completion_id,
+                    "completion_id": completion_id,
+                    "hypothesis_source": "nemotron_live",
+                    "ast_detected_signals": ast_signals,
+                    "candidate_arms": candidate_arms,
+                    "hypotheses": candidate_arms,
+                }
+        except Exception as e:
+            logger.warning("Nemotron hypothesis ranking failed: %s. Using AST heuristic fallback.", e)
+            self.hypothesis_call_metadata = {
+                "live_api_succeeded": False,
+                "error": str(e),
+                "fallback_used": True,
+            }
+
+        fallback_arms = _heuristic_hypotheses(ast_signals)
+        return {
+            "hypothesis_model": MODEL_FAST,
+            "hypothesis_completion_id": None,
+            "completion_id": None,
+            "hypothesis_source": "ast_heuristic_fallback",
+            "ast_detected_signals": ast_signals,
+            "candidate_arms": fallback_arms,
+            "hypotheses": fallback_arms,
+        }
+
+
+def extract_ast_signals(test_code: str, target_code: str = "") -> list[str]:
+    """Extracts concrete static AST code signals from test and target code."""
+    signals: list[str] = []
+    combined = f"{test_code}\n{target_code}"
+
+    # Try AST parsing
+    try:
+        tree = ast.parse(combined)
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.Import, ast.ImportFrom)):
+                names = [alias.name for alias in node.names]
+                mod = getattr(node, "module", "") or ""
+                all_names = set(names + ([mod] if mod else []))
+                if "threading" in all_names and "imports:threading" not in signals:
+                    signals.append("imports:threading")
+                if "asyncio" in all_names and "imports:asyncio" not in signals:
+                    signals.append("imports:asyncio")
+                if "random" in all_names and "imports:random" not in signals:
+                    signals.append("imports:random")
+                if "time" in all_names and "imports:time" not in signals:
+                    signals.append("imports:time")
+                if any(n in all_names for n in ("socket", "httpx", "requests", "urllib")) and "imports:socket" not in signals:
+                    signals.append("imports:socket")
+            elif isinstance(node, ast.Call):
+                func = node.func
+                if isinstance(func, ast.Attribute):
+                    attr = func.attr
+                    if attr == "start" and "calls:Thread.start" not in signals:
+                        signals.append("calls:Thread.start")
+                    elif attr == "sleep" and "calls:time.sleep" not in signals:
+                        signals.append("calls:time.sleep")
+                    elif attr in ("sample", "choice", "randint", "shuffle") and "calls:random.sample" not in signals:
+                        signals.append("calls:random.sample")
+                    elif attr in ("time", "monotonic", "perf_counter") and "calls:time.time" not in signals:
+                        signals.append("calls:time.time")
+                    elif attr == "connect" and "calls:socket.connect" not in signals:
+                        signals.append("calls:socket.connect")
+                elif isinstance(func, ast.Name):
+                    if func.id == "Thread" and "calls:Thread.start" not in signals:
+                        signals.append("calls:Thread.start")
+                    elif func.id == "sleep" and "calls:time.sleep" not in signals:
+                        signals.append("calls:time.sleep")
+            elif isinstance(node, ast.Assign):
+                for target in node.targets:
+                    if isinstance(target, ast.Subscript):
+                        if isinstance(target.value, ast.Name) and (
+                            target.value.id.isupper()
+                            or "cache" in target.value.id.lower()
+                            or "registry" in target.value.id.lower()
+                            or "global" in target.value.id.lower()
+                        ):
+                            if "module_global_dict_mutation" not in signals:
+                                signals.append("module_global_dict_mutation")
+    except Exception:
+        pass
+
+    # Regex safety net
+    if "time.sleep" in combined and "calls:time.sleep" not in signals:
+        signals.append("calls:time.sleep")
+    if "threading" in combined and "imports:threading" not in signals:
+        signals.append("imports:threading")
+    if ("Thread(" in combined or ".start()" in combined) and "calls:Thread.start" not in signals:
+        signals.append("calls:Thread.start")
+    if "asyncio" in combined and "imports:asyncio" not in signals:
+        signals.append("imports:asyncio")
+    if "random" in combined and "imports:random" not in signals:
+        signals.append("imports:random")
+    if any(k in combined for k in ("random.sample", "random.choice", "random.randint")) and "calls:random.sample" not in signals:
+        signals.append("calls:random.sample")
+    if ("time.time" in combined or "time.monotonic" in combined) and "calls:time.time" not in signals:
+        signals.append("calls:time.time")
+    if any(k in combined for k in ("socket", "httpx", "requests")) and "imports:socket" not in signals:
+        signals.append("imports:socket")
+    if "connect(" in combined and "calls:socket.connect" not in signals:
+        signals.append("calls:socket.connect")
+    if any(k in combined for k in ("GLOBAL_", "cache[", "CACHE[", "_registry[", "order_pollution")) and "module_global_dict_mutation" not in signals:
+        signals.append("module_global_dict_mutation")
+
+    return signals
+
+
+def _normalize_arms(arms: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    for a in arms:
+        if "nemotron_prior_rank" in a and "prior_rank" not in a:
+            a["prior_rank"] = a["nemotron_prior_rank"]
+        if "nemotron_rationale" in a and "rationale" not in a:
+            a["rationale"] = a["nemotron_rationale"]
+    return arms
+
+
+def _heuristic_hypotheses(signals: list[str]) -> list[dict[str, Any]]:
+    """Deterministically ranks top 4 (PerturbationType, PerturbationIntensity) arms using AST signals."""
+    return _normalize_arms(_raw_heuristic_hypotheses(signals))
+
+
+def _raw_heuristic_hypotheses(signals: list[str]) -> list[dict[str, Any]]:
+    # 1. Concurrency / Threading
+    if any(s in signals for s in ("imports:threading", "calls:Thread.start", "calls:time.sleep", "imports:asyncio")):
+        return [
+            {
+                "arm_id": "cpu_heavy_load:L3_EXTREME",
+                "perturbation": PerturbationType.CPU_HEAVY_LOAD,
+                "intensity": PerturbationIntensity.L3_EXTREME,
+                "nemotron_prior_rank": 1,
+                "nemotron_rationale": "Tight GIL thrashing (1µs) and background burner threads maximize thread race exposure during unsynchronized waits.",
+            },
+            {
+                "arm_id": "cpu_half_cores:L1_MILD",
+                "perturbation": PerturbationType.CPU_HALF_CORES,
+                "intensity": PerturbationIntensity.L1_MILD,
+                "nemotron_prior_rank": 2,
+                "nemotron_rationale": "Core starvation increases preemption latency, exposing timing assumptions in thread completion.",
+            },
+            {
+                "arm_id": "clock_shift:L2_MODERATE",
+                "perturbation": PerturbationType.CLOCK_SHIFT,
+                "intensity": PerturbationIntensity.L2_MODERATE,
+                "nemotron_prior_rank": 3,
+                "nemotron_rationale": "Wall-clock shift tests whether thread timeouts rely on wall-clock instead of monotonic time.",
+            },
+            {
+                "arm_id": "shuffle_order:L2_MODERATE",
+                "perturbation": PerturbationType.SHUFFLE_ORDER,
+                "intensity": PerturbationIntensity.L2_MODERATE,
+                "nemotron_prior_rank": 4,
+                "nemotron_rationale": "Permuting test execution order reveals shared state leaks or unjoined daemon threads.",
+            },
+        ]
+
+    # 2. Random sampling / unpinned seeds
+    if any(s in signals for s in ("imports:random", "calls:random.sample")):
+        return [
+            {
+                "arm_id": "seed_change:L3_EXTREME",
+                "perturbation": PerturbationType.SEED_CHANGE,
+                "intensity": PerturbationIntensity.L3_EXTREME,
+                "nemotron_prior_rank": 1,
+                "nemotron_rationale": "Boundary seed sweep and continuous re-seeding expose sampling variance and unpinned RNG logic.",
+            },
+            {
+                "arm_id": "seed_change:L2_MODERATE",
+                "perturbation": PerturbationType.SEED_CHANGE,
+                "intensity": PerturbationIntensity.L2_MODERATE,
+                "nemotron_prior_rank": 2,
+                "nemotron_rationale": "Adversarial prime seeds test edge-case probability distribution tails.",
+            },
+            {
+                "arm_id": "shuffle_order:L2_MODERATE",
+                "perturbation": PerturbationType.SHUFFLE_ORDER,
+                "intensity": PerturbationIntensity.L2_MODERATE,
+                "nemotron_prior_rank": 3,
+                "nemotron_rationale": "Test ordering changes alter global RNG consumption sequences between tests.",
+            },
+            {
+                "arm_id": "cpu_heavy_load:L2_MODERATE",
+                "perturbation": PerturbationType.CPU_HEAVY_LOAD,
+                "intensity": PerturbationIntensity.L2_MODERATE,
+                "nemotron_prior_rank": 4,
+                "nemotron_rationale": "Moderate CPU load tests concurrent sampling and thread-safe random state.",
+            },
+        ]
+
+    # 3. Clock / expiration
+    if any(s in signals for s in ("calls:time.time", "imports:time")):
+        return [
+            {
+                "arm_id": "clock_shift:L3_EXTREME",
+                "perturbation": PerturbationType.CLOCK_SHIFT,
+                "intensity": PerturbationIntensity.L3_EXTREME,
+                "nemotron_prior_rank": 1,
+                "nemotron_rationale": "Extreme +86400s leap-day/midnight clock skew triggers cache TTL expiration and timestamp edge cases.",
+            },
+            {
+                "arm_id": "clock_shift:L2_MODERATE",
+                "perturbation": PerturbationType.CLOCK_SHIFT,
+                "intensity": PerturbationIntensity.L2_MODERATE,
+                "nemotron_prior_rank": 2,
+                "nemotron_rationale": "Hour-scale clock offset exposes short token expiration and TTL window invalidation.",
+            },
+            {
+                "arm_id": "clock_shift:L1_MILD",
+                "perturbation": PerturbationType.CLOCK_SHIFT,
+                "intensity": PerturbationIntensity.L1_MILD,
+                "nemotron_prior_rank": 3,
+                "nemotron_rationale": "Mild +60s clock jitter tests tight timeout threshold margins.",
+            },
+            {
+                "arm_id": "cpu_heavy_load:L2_MODERATE",
+                "perturbation": PerturbationType.CPU_HEAVY_LOAD,
+                "intensity": PerturbationIntensity.L2_MODERATE,
+                "nemotron_prior_rank": 4,
+                "nemotron_rationale": "CPU load dilates interval gaps between successive time.time() checks.",
+            },
+        ]
+
+    # 4. Socket / network
+    if any(s in signals for s in ("imports:socket", "calls:socket.connect")):
+        return [
+            {
+                "arm_id": "network_cut:L3_EXTREME",
+                "perturbation": PerturbationType.NETWORK_CUT,
+                "intensity": PerturbationIntensity.L3_EXTREME,
+                "nemotron_prior_rank": 1,
+                "nemotron_rationale": "Immediate ENETUNREACH socket cut verifies retry handling and fallback failover.",
+            },
+            {
+                "arm_id": "network_cut:L2_MODERATE",
+                "perturbation": PerturbationType.NETWORK_CUT,
+                "intensity": PerturbationIntensity.L2_MODERATE,
+                "nemotron_prior_rank": 2,
+                "nemotron_rationale": "150ms socket latency and intermittent timeout triggers connection pool exhaustion.",
+            },
+            {
+                "arm_id": "network_cut:L1_MILD",
+                "perturbation": PerturbationType.NETWORK_CUT,
+                "intensity": PerturbationIntensity.L1_MILD,
+                "nemotron_prior_rank": 3,
+                "nemotron_rationale": "25ms latency jitter tests network timeout boundary conditions.",
+            },
+            {
+                "arm_id": "cpu_heavy_load:L2_MODERATE",
+                "perturbation": PerturbationType.CPU_HEAVY_LOAD,
+                "intensity": PerturbationIntensity.L2_MODERATE,
+                "nemotron_prior_rank": 4,
+                "nemotron_rationale": "CPU load delays asynchronous network event loop callbacks.",
+            },
+        ]
+
+    # 5. Order dependency / state mutation
+    if "module_global_dict_mutation" in signals:
+        return [
+            {
+                "arm_id": "shuffle_order:L3_EXTREME",
+                "perturbation": PerturbationType.SHUFFLE_ORDER,
+                "intensity": PerturbationIntensity.L3_EXTREME,
+                "nemotron_prior_rank": 1,
+                "nemotron_rationale": "Executing mutating sibling tests twice before target test triggers order pollution and leftover state.",
+            },
+            {
+                "arm_id": "shuffle_order:L2_MODERATE",
+                "perturbation": PerturbationType.SHUFFLE_ORDER,
+                "intensity": PerturbationIntensity.L2_MODERATE,
+                "nemotron_prior_rank": 2,
+                "nemotron_rationale": "Permuting sibling test execution order exposes missing fixture cleanup.",
+            },
+            {
+                "arm_id": "shuffle_order:L1_MILD",
+                "perturbation": PerturbationType.SHUFFLE_ORDER,
+                "intensity": PerturbationIntensity.L1_MILD,
+                "nemotron_prior_rank": 3,
+                "nemotron_rationale": "Reversing sibling test order exposes sequential test dependencies.",
+            },
+            {
+                "arm_id": "cpu_heavy_load:L2_MODERATE",
+                "perturbation": PerturbationType.CPU_HEAVY_LOAD,
+                "intensity": PerturbationIntensity.L2_MODERATE,
+                "nemotron_prior_rank": 4,
+                "nemotron_rationale": "CPU contention widens the window for dirty state reads between test cases.",
+            },
+        ]
+
+    # Default fallback
+    return [
+        {
+            "arm_id": "cpu_heavy_load:L3_EXTREME",
+            "perturbation": PerturbationType.CPU_HEAVY_LOAD,
+            "intensity": PerturbationIntensity.L3_EXTREME,
+            "nemotron_prior_rank": 1,
+            "nemotron_rationale": "Extreme CPU load thrashing is the primary amplifier for nondeterministic timing delays.",
+        },
+        {
+            "arm_id": "seed_change:L2_MODERATE",
+            "perturbation": PerturbationType.SEED_CHANGE,
+            "intensity": PerturbationIntensity.L2_MODERATE,
+            "nemotron_prior_rank": 2,
+            "nemotron_rationale": "Adversarial seeds reveal data generation boundary flaws.",
+        },
+        {
+            "arm_id": "clock_shift:L2_MODERATE",
+            "perturbation": PerturbationType.CLOCK_SHIFT,
+            "intensity": PerturbationIntensity.L2_MODERATE,
+            "nemotron_prior_rank": 3,
+            "nemotron_rationale": "Clock shift tests timestamp and cache expiration sensitivity.",
+        },
+        {
+            "arm_id": "shuffle_order:L2_MODERATE",
+            "perturbation": PerturbationType.SHUFFLE_ORDER,
+            "intensity": PerturbationIntensity.L2_MODERATE,
+            "nemotron_prior_rank": 4,
+            "nemotron_rationale": "Order permutation catches inter-test state contamination.",
+        },
+    ]

@@ -1,6 +1,6 @@
 {
   "trace_id": "coinflip-corpus-seed-sampling-trace",
-  "timestamp_utc": "2026-10-21T08:31:45.988527+00:00",
+  "timestamp_utc": "2026-10-24T11:15:00.655607+00:00",
   "is_recorded_replay": true,
   "project_name": "ml-pipeline",
   "test_identifier": "ml-pipeline::test_sampler.py",
@@ -53,7 +53,8 @@
       "absolute_rate_delta": 0.0,
       "is_statistically_significant": false,
       "holm_adjusted_p_value": 1.0
-    }
+    },
+    "intensity": "L2_MODERATE"
   },
   "stage2_ledger": [
     {
@@ -105,7 +106,8 @@
         "absolute_rate_delta": 0.0,
         "is_statistically_significant": false,
         "holm_adjusted_p_value": 1.0
-      }
+      },
+      "intensity": "L2_MODERATE"
     },
     {
       "perturbation": "shuffle_order",
@@ -151,30 +153,31 @@
         "absolute_rate_delta": 0.0,
         "is_statistically_significant": false,
         "holm_adjusted_p_value": 1.0
-      }
+      },
+      "intensity": "L2_MODERATE"
     },
     {
       "perturbation": "seed_change",
       "label": "Alternative random & hash seeds",
-      "total_runs": 25,
-      "failures": 1,
-      "passes": 24,
-      "failure_rate": 0.04,
-      "ci_95_lower": 0.0071,
-      "ci_95_upper": 0.1954,
+      "total_runs": 20,
+      "failures": 3,
+      "passes": 17,
+      "failure_rate": 0.15,
+      "ci_95_lower": 0.0524,
+      "ci_95_upper": 0.3604,
       "execution_backend": "local_isolated",
       "sample_failure_logs": [
-        "Traceback (most recent call last):\n  File \"/Users/vishwajithmbhat/Desktop/AI Projects/coinflip/sandbox_engine/_worker_pool.py\", line 149, in run_worker_chunk\n    f()\n    ~^^\n  File \"/private/var/folders/7b/ngs8ygfn3_3crnsjzmpfckg00000gn/T/coinflip_batch_naqyghn1/test_sampler.py\", line 22, in test_batch_score_above_threshold\n    assert score >= 85.0, (\n           ^^^^^^^^^^^^^\nAssertionError: Batch quality score 61.5 below threshold 85.0 — selected feature indices: [4, 9, 13, 22, 34, 39, 67, 90, 93, 105, 128, 134]"
+        "Traceback (most recent call last):\n  File \"/Users/vishwajithmbhat/Desktop/AI Projects/coinflip/sandbox_engine/_worker_pool.py\", line 168, in run_worker_chunk\n    f()\n    ~^^\n  File \"/private/var/folders/7b/ngs8ygfn3_3crnsjzmpfckg00000gn/T/coinflip_batch_h0g01h16/test_sampler.py\", line 22, in test_batch_score_above_threshold\n    assert score >= 85.0, (\n           ^^^^^^^^^^^^^\nAssertionError: Batch quality score 76.0 below threshold 85.0 — selected feature indices: [9, 14, 21, 23, 43, 54, 64, 78, 92, 155, 171, 188]",
+        "Traceback (most recent call last):\n  File \"/Users/vishwajithmbhat/Desktop/AI Projects/coinflip/sandbox_engine/_worker_pool.py\", line 168, in run_worker_chunk\n    f()\n    ~^^\n  File \"/private/var/folders/7b/ngs8ygfn3_3crnsjzmpfckg00000gn/T/coinflip_batch_h0g01h16/test_sampler.py\", line 22, in test_batch_score_above_threshold\n    assert score >= 85.0, (\n           ^^^^^^^^^^^^^\nAssertionError: Batch quality score 80.2 below threshold 85.0 — selected feature indices: [12, 14, 18, 24, 38, 82, 93, 101, 129, 137, 149, 166]",
+        "Traceback (most recent call last):\n  File \"/Users/vishwajithmbhat/Desktop/AI Projects/coinflip/sandbox_engine/_worker_pool.py\", line 168, in run_worker_chunk\n    f()\n    ~^^\n  File \"/private/var/folders/7b/ngs8ygfn3_3crnsjzmpfckg00000gn/T/coinflip_batch_h0g01h16/test_sampler.py\", line 22, in test_batch_score_above_threshold\n    assert score >= 85.0, (\n           ^^^^^^^^^^^^^\nAssertionError: Batch quality score 83.2 below threshold 85.0 — selected feature indices: [4, 8, 19, 22, 73, 88, 100, 106, 130, 140, 153, 155]"
       ],
       "run_dots": [
         true,
         true,
+        false,
         true,
         true,
-        true,
-        true,
-        true,
-        true,
+        false,
         true,
         true,
         true,
@@ -188,18 +191,16 @@
         true,
         true,
         true,
-        true,
-        true,
-        true,
         true
       ],
       "causal_metrics": {
-        "fisher_p_value": 0.45454545,
-        "relative_risk": 3.5882,
-        "absolute_rate_delta": 0.04,
+        "fisher_p_value": 0.05816327,
+        "relative_risk": 10.4146,
+        "absolute_rate_delta": 0.15,
         "is_statistically_significant": false,
-        "holm_adjusted_p_value": 1.0
-      }
+        "holm_adjusted_p_value": 0.407143
+      },
+      "intensity": "L2_MODERATE"
     },
     {
       "perturbation": "clock_shift",
@@ -245,7 +246,8 @@
         "absolute_rate_delta": 0.0,
         "is_statistically_significant": false,
         "holm_adjusted_p_value": 1.0
-      }
+      },
+      "intensity": "L2_MODERATE"
     },
     {
       "perturbation": "network_cut",
@@ -291,7 +293,8 @@
         "absolute_rate_delta": 0.0,
         "is_statistically_significant": false,
         "holm_adjusted_p_value": 1.0
-      }
+      },
+      "intensity": "L2_MODERATE"
     },
     {
       "perturbation": "cpu_half_cores",
@@ -337,7 +340,8 @@
         "absolute_rate_delta": 0.0,
         "is_statistically_significant": false,
         "holm_adjusted_p_value": 1.0
-      }
+      },
+      "intensity": "L1_MILD"
     },
     {
       "perturbation": "cpu_heavy_load",
@@ -383,7 +387,8 @@
         "absolute_rate_delta": 0.0,
         "is_statistically_significant": false,
         "holm_adjusted_p_value": 1.0
-      }
+      },
+      "intensity": "L3_EXTREME"
     }
   ],
   "triggering_stress_condition": "seed_change",
@@ -405,7 +410,8 @@
         "execution_backend": "local_isolated",
         "sample_failure_logs": [],
         "run_dots": [],
-        "causal_metrics": null
+        "causal_metrics": null,
+        "intensity": null
       },
       "stress_cert_result": {
         "perturbation": "baseline",
@@ -419,7 +425,8 @@
         "execution_backend": "local_isolated",
         "sample_failure_logs": [],
         "run_dots": [],
-        "causal_metrics": null
+        "causal_metrics": null,
+        "intensity": null
       },
       "upper_bound_95_normal": 1.0,
       "upper_bound_95_stress": 1.0,
@@ -491,7 +498,8 @@
           true,
           true
         ],
-        "causal_metrics": null
+        "causal_metrics": null,
+        "intensity": "L2_MODERATE"
       },
       "stress_cert_result": {
         "perturbation": "seed_change",
@@ -536,10 +544,11 @@
           true,
           true
         ],
-        "causal_metrics": null
+        "causal_metrics": null,
+        "intensity": "L2_MODERATE"
       },
-      "upper_bound_95_normal": 0.1,
-      "upper_bound_95_stress": 0.1,
+      "upper_bound_95_normal": 0.095,
+      "upper_bound_95_stress": 0.095,
       "target_limit": 0.005,
       "verdict": "CERTIFIED",
       "rejection_reason": null,
@@ -576,21 +585,21 @@
   "final_verdict": "PASS",
   "models_used": {},
   "race_timeline": {
-    "measured_quiet_worker_ms": 0.66,
-    "measured_quiet_assert_ms": 6.95,
-    "quiet_margin_ms": 6.29,
-    "measured_stress_worker_ms": 50.19,
-    "measured_stress_assert_ms": 43.79,
+    "measured_quiet_worker_ms": 0.75,
+    "measured_quiet_assert_ms": 7.02,
+    "quiet_margin_ms": 6.27,
+    "measured_stress_worker_ms": 56.72,
+    "measured_stress_assert_ms": 50.32,
     "stress_race_violation_ms": -6.4,
-    "explanation": "Quiet baseline displays a positive safety margin of +6.29ms (worker finishes in 0.66ms before assert fires at 6.95ms). Under CPU heavy load, thread contention delays worker completion to 50.19ms, producing a 6.40ms race violation (assert fires 6.40ms before background worker completes)."
+    "explanation": "Quiet baseline displays a positive safety margin of +6.27ms (worker finishes in 0.75ms before assert fires at 7.02ms). Under CPU heavy load, thread contention delays worker completion to 56.72ms, producing a 6.40ms race violation (assert fires 6.40ms before background worker completes)."
   },
   "attestation": {
     "algorithm": "SHA-256-Merkle",
-    "repo_snapshot_sha256": "c3c48b6cbffc761a65875a11ccd31a4676bcacea9e92f89b6a0d1b788970bd10",
+    "repo_snapshot_sha256": "d97b618fdb6f4bd29099d7e212a4e9bcd0b926d00de0674b935b0240bb4b1bde",
     "patch_diff_sha256": "952b320604bc65392946f84b7d47e53528cb6b3e07d90a285f6a1e48e5266a05",
-    "experiment_ledger_merkle_root": "98efa7f61497e4542233f74e6e4a9820fdb418ae5cbcd578c0f0b93fa2f396a4",
-    "certificate_digest_sha256": "8c287bcec588b06d0c21c79637cb931ec1669229be1adf61198ec2545a9ecae6",
-    "hmac_signature": "2d0e20136a5d2b95b31a5dd3a4ac85a6ba1ab30d528012362a1e7a1e2ea45840",
+    "experiment_ledger_merkle_root": "88a39f4e0eed625abc0bca072c569d4873ea6cc439df52a458be15d68025eb88",
+    "certificate_digest_sha256": "83de07a4654439f0a39e36b67dae7a2618c0031a022ea264068aa22d42c4fdbb",
+    "hmac_signature": "d585e36d007c16a58d1e9e338c1c91bd36e21200717b1f93e9dde0bfe4f63f6c",
     "signing_mode": "hmac_sha256_server_secret",
     "verified": true
   },
@@ -606,6 +615,11 @@
       "fallback_used": true,
       "error": "Both nvidia/nemotron-3-super-120b-a12b and nvidia/Nemotron-3_5-Lightning failed. Last error: Connection error."
     },
+    "hypothesis": {
+      "live_api_succeeded": false,
+      "error": "All model calls failed. Last error: Connection error.",
+      "fallback_used": true
+    },
     "last_call": {
       "live_api_succeeded": false,
       "completion_id": "",
@@ -616,5 +630,91 @@
       "error": "Both nvidia/nemotron-3-super-120b-a12b and nvidia/Nemotron-3_5-Lightning failed. Last error: Connection error."
     }
   },
-  "trace_origin": "recorded_execution"
+  "trace_origin": "recorded_execution",
+  "amplifier_report": {
+    "enabled": true,
+    "hypothesis_model": "nvidia/Nemotron-3_5-Lightning",
+    "hypothesis_completion_id": null,
+    "hypothesis_source": "ast_heuristic_fallback",
+    "ast_detected_signals": [
+      "imports:random",
+      "calls:random.sample"
+    ],
+    "search_algorithm": "successive_halving_thompson",
+    "exploration_budget": 24,
+    "confirmation_budget": 20,
+    "winning_arm_id": "seed_change:L2_MODERATE",
+    "winning_perturbation": "seed_change",
+    "winning_intensity": "L2_MODERATE",
+    "baseline_failure_rate": 0.0,
+    "confirmation_runs": 20,
+    "confirmation_failures": 3,
+    "confirmed_failure_rate": 0.15,
+    "confirmed_ci_95_lower": 0.0524,
+    "confirmed_ci_95_upper": 0.3604,
+    "amplification_factor": 15.0,
+    "runs_to_first_failure": 1,
+    "leaderboard": [
+      {
+        "arm_id": "seed_change:L2_MODERATE",
+        "perturbation": "seed_change",
+        "intensity": "L2_MODERATE",
+        "nemotron_prior_rank": 2,
+        "nemotron_rationale": "Adversarial prime seeds test edge-case probability distribution tails.",
+        "round1_runs": 3,
+        "round1_failures": 1,
+        "round2_runs": 6,
+        "round2_failures": 2,
+        "total_exploration_runs": 9,
+        "total_exploration_failures": 3,
+        "exploration_failure_rate": 0.3333,
+        "eliminated_in_round": null
+      },
+      {
+        "arm_id": "seed_change:L3_EXTREME",
+        "perturbation": "seed_change",
+        "intensity": "L3_EXTREME",
+        "nemotron_prior_rank": 1,
+        "nemotron_rationale": "Boundary seed sweep and continuous re-seeding expose sampling variance and unpinned RNG logic.",
+        "round1_runs": 3,
+        "round1_failures": 1,
+        "round2_runs": 6,
+        "round2_failures": 1,
+        "total_exploration_runs": 9,
+        "total_exploration_failures": 2,
+        "exploration_failure_rate": 0.2222,
+        "eliminated_in_round": 2
+      },
+      {
+        "arm_id": "shuffle_order:L2_MODERATE",
+        "perturbation": "shuffle_order",
+        "intensity": "L2_MODERATE",
+        "nemotron_prior_rank": 3,
+        "nemotron_rationale": "Test ordering changes alter global RNG consumption sequences between tests.",
+        "round1_runs": 3,
+        "round1_failures": 0,
+        "round2_runs": 0,
+        "round2_failures": 0,
+        "total_exploration_runs": 3,
+        "total_exploration_failures": 0,
+        "exploration_failure_rate": 0.0,
+        "eliminated_in_round": 1
+      },
+      {
+        "arm_id": "cpu_heavy_load:L2_MODERATE",
+        "perturbation": "cpu_heavy_load",
+        "intensity": "L2_MODERATE",
+        "nemotron_prior_rank": 4,
+        "nemotron_rationale": "Moderate CPU load tests concurrent sampling and thread-safe random state.",
+        "round1_runs": 3,
+        "round1_failures": 0,
+        "round2_runs": 0,
+        "round2_failures": 0,
+        "total_exploration_runs": 3,
+        "total_exploration_failures": 0,
+        "exploration_failure_rate": 0.0,
+        "eliminated_in_round": 1
+      }
+    ]
+  }
 }
