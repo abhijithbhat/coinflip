@@ -159,6 +159,8 @@ export type Trace = {
   attestation?: any;
   cryptographic_attestation?: any;
   amplifier_report?: FlakeAmplifierReport | null;
+  trace_origin?: "live_execution" | "recorded_execution" | "illustrative_reference" | string;
+  executed_at?: string;
 };
 
 /** Deterministic spread of `fails` failures across `n` runs. */
@@ -656,7 +658,7 @@ export async function fetchTrace(): Promise<{ trace: Trace; source: "api" | "fal
   return { trace: FALLBACK_TRACE, source: "fallback" };
 }
 
-function normalize(t: Trace): Trace {
+export function normalize(t: Trace): Trace {
   let normalized = t;
   const sc = t.streak_curve_data as unknown;
   if (Array.isArray(sc)) {
@@ -731,12 +733,19 @@ function normalize(t: Trace): Trace {
 }
 
 export async function runLive(caseId?: CaseId): Promise<{ ok: boolean; data?: Partial<Trace>; error?: string }> {
-  for (const url of ["/api/run-live", "http://localhost:8000/api/run-live"]) {
+  const selectedCase = caseId || "hero";
+  for (const baseUrl of ["/api/run-live", "http://localhost:8000/api/run-live"]) {
     try {
+      const url = `${baseUrl}?case=${encodeURIComponent(selectedCase)}&fresh=true`;
       const r = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ runs_per_condition: 30, case_id: caseId || "hero" }),
+        body: JSON.stringify({
+          case: selectedCase,
+          case_id: selectedCase,
+          fast_live_mode: true,
+          runs_per_condition: 25,
+        }),
       });
       if (!r.ok) continue;
       return { ok: true, data: await r.json() };
@@ -745,6 +754,26 @@ export async function runLive(caseId?: CaseId): Promise<{ ok: boolean; data?: Pa
     }
   }
   return { ok: false, error: "Live sandbox backend unreachable — showing recorded replay." };
+}
+
+export function streamLiveTrace(
+  caseId?: CaseId,
+  onEvent?: (eventType: string, data: any) => void
+): EventSource {
+  const selectedCase = caseId || "hero";
+  const url = `/api/stream-live?case=${encodeURIComponent(selectedCase)}&case_id=${encodeURIComponent(selectedCase)}&fresh=true`;
+  const es = new EventSource(url);
+  if (onEvent) {
+    es.onmessage = (e) => {
+      try {
+        const parsed = JSON.parse(e.data);
+        onEvent("message", parsed);
+      } catch {
+        /* ignore */
+      }
+    };
+  }
+  return es;
 }
 
 export const pct = (x: number, d = 1) => `${(x * 100).toFixed(d)}%`;

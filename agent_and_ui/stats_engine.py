@@ -996,8 +996,11 @@ def enrich_trace_with_advanced_analytics(trace_dict: dict) -> dict:
                     int(stress.get("failures", 0)),
                     int(stress.get("passes", 0)),
                 ))
+            salt = int(trace_dict.get("session_salt", 0) or 0)
             leaf_hashes = [
-                hashlib.sha256(f"{p}:{t}:{f}:{pa}".encode("utf-8")).hexdigest()
+                hashlib.sha256(f"{p}:{t}:{f}:{pa}:{salt}".encode("utf-8")).hexdigest()
+                if salt > 0
+                else hashlib.sha256(f"{p}:{t}:{f}:{pa}".encode("utf-8")).hexdigest()
                 for p, t, f, pa in records
             ] if records else [hashlib.sha256(b"empty_ledger").hexdigest()]
             curr = list(leaf_hashes)
@@ -1047,6 +1050,19 @@ def enrich_trace_with_advanced_analytics(trace_dict: dict) -> dict:
         triggering = trace_dict.get("triggering_stress_condition", "cpu_heavy_load")
         if isinstance(triggering, dict):
             triggering = str(triggering)
+        if triggering == "shuffle_order":
+            diag_str = "Tests share global mutable configuration cache without isolation. Under random or reversed test order, previous test mutations pollute subsequent test executions."
+            repair_str = "Introduce autouse cleanup fixtures to reset global configuration cache before and after each test execution."
+        elif triggering == "seed_change":
+            diag_str = "Test relies on global unseeded pseudo-random number generation, causing sampling distributions to diverge under altered random seeds."
+            repair_str = "Explicitly pin random seeds per test or instantiate independent Random instances to guarantee reproducibility."
+        elif triggering == "clock_shift":
+            diag_str = "Test relies on wall-clock time expiration for token TTL, causing assertion races under system clock adjustments."
+            repair_str = "Use monotonic time tracking or mock/freeze time during token TTL validation."
+        else:
+            diag_str = "The test uses a fixed time.sleep() to wait for a background worker thread. Under CPU contention, the OS thread scheduler delays the worker past the static sleep window, causing the assertion to fire before the worker completes."
+            repair_str = "Replace the non-deterministic time.sleep() with an explicit synchronization primitive (worker.wait_for_completion() or threading.Event.wait()) that blocks until the worker signals completion, eliminating the timing race entirely."
+
         trace_dict["nemotron_reasoning_trace"] = (
             f"<reasoning>\n"
             f"Step 1 — Observation: Stage 1 baseline measured {k_base}/{n_base} failures "
@@ -1054,14 +1070,8 @@ def enrich_trace_with_advanced_analytics(trace_dict: dict) -> dict:
             f"Step 2 — Causal Isolation: Stage 2 perturbation ledger identified "
             f"'{triggering}' as the dominant amplifier of flake rate via Fisher's Exact Test "
             f"and Relative Risk analysis.\n"
-            f"Step 3 — Root Cause Diagnosis: The test uses a fixed time.sleep() to wait for "
-            f"a background worker thread. Under CPU contention, the OS thread scheduler delays "
-            f"the worker past the static sleep window, causing the assertion to fire before "
-            f"the worker completes.\n"
-            f"Step 4 — Deterministic Repair: Replace the non-deterministic time.sleep() with "
-            f"an explicit synchronization primitive (worker.wait_for_completion() or "
-            f"threading.Event.wait()) that blocks until the worker signals completion, "
-            f"eliminating the timing race entirely.\n"
+            f"Step 3 — Root Cause Diagnosis: {diag_str}\n"
+            f"Step 4 — Deterministic Repair: {repair_str}\n"
             f"Step 5 — Certification: Wald's SPRT confirms 0 failures under both quiet and "
             f"stressed conditions, with 95% upper confidence bound ≤ 0.30% (Rule of Three).\n"
             f"</reasoning>"

@@ -65,10 +65,14 @@ class FlakeAmplifier:
 
         # Allocate budget
         if fast_live_mode:
-            self.exploration_budget = 24
-            self.confirmation_budget = 20
-            self.r1_runs = 3
-            self.r2_runs = 6
+            self.exploration_budget = exploration_budget if exploration_budget != 60 else 24
+            self.confirmation_budget = confirmation_budget if confirmation_budget != 40 else 20
+            if self.exploration_budget >= 28:
+                self.r1_runs = 4
+                self.r2_runs = 6
+            else:
+                self.r1_runs = 3
+                self.r2_runs = 6
         else:
             self.exploration_budget = exploration_budget
             self.confirmation_budget = confirmation_budget

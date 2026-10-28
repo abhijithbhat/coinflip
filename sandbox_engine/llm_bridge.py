@@ -86,6 +86,7 @@ class NemotronBridge:
         fallback_model: str | None = None,
         max_tokens: int = 4096,
         temperature: float = 0.2,
+        timeout: float | None = None,
     ) -> str:
         """Executes a chat completion call with error handling and fallback model routing."""
         client = getattr(self, "client", None) or self._client
@@ -99,12 +100,15 @@ class NemotronBridge:
         last_error: Exception | None = None
         for m in target_models:
             try:
-                resp = client.chat.completions.create(
-                    model=m,
-                    messages=messages,  # type: ignore[arg-type]
-                    max_tokens=max_tokens,
-                    temperature=temperature,
-                )
+                kwargs: dict[str, Any] = {
+                    "model": m,
+                    "messages": messages,
+                    "max_tokens": max_tokens,
+                    "temperature": temperature,
+                }
+                if timeout is not None:
+                    kwargs["timeout"] = timeout
+                resp = client.chat.completions.create(**kwargs)
                 msg = resp.choices[0].message
                 content = msg.content or ""
                 # Quirk handler for Nemotron reasoning models: if content is empty, check reasoning_content
@@ -127,10 +131,13 @@ class NemotronBridge:
 
         raise RuntimeError(f"All model calls failed. Last error: {last_error}")
 
-    def summarize_failure_logs(self, logs: list[str]) -> str:
+    def summarize_failure_logs(self, logs: list[str], fast_live_mode: bool = False) -> str:
         """Summarizes deduplicated failure tracebacks in < 250 tokens using Nemotron Lightning."""
         if self._external_agent and hasattr(self._external_agent, "summarize_failure_logs"):
-            res = self._external_agent.summarize_failure_logs(logs)
+            try:
+                res = self._external_agent.summarize_failure_logs(logs, fast_live_mode=fast_live_mode)
+            except TypeError:
+                res = self._external_agent.summarize_failure_logs(logs)
             if hasattr(self._external_agent, "summarize_call_metadata"):
                 self.summarize_call_metadata = self._external_agent.summarize_call_metadata
             if hasattr(self._external_agent, "last_call_metadata"):
@@ -147,13 +154,16 @@ class NemotronBridge:
             f"{joined_logs}"
         )
 
+        tokens = 300 if fast_live_mode else 350
+        timeout = 4.5 if fast_live_mode else 12.0
         try:
             res = self._call_model(
                 model=MODEL_FAST,
                 fallback_model=MODEL_FAST_FALLBACK,
                 messages=[{"role": "user", "content": prompt}],
-                max_tokens=350,
+                max_tokens=tokens,
                 temperature=0.1,
+                timeout=timeout,
             ).strip()
             self.summarize_call_metadata = dict(self.last_call_metadata)
             return res
@@ -280,13 +290,17 @@ class NemotronBridge:
             "3. Output the complete replacement test file inside a ```python ... ``` block.\n"
         )
 
+        model_target = "nvidia/nemotron-3-super-120b-a12b" if fast_live_mode else MODEL_REASONING
+        tokens = 300 if fast_live_mode else 4096
+        timeout = 4.5 if fast_live_mode else 60.0
         try:
             response = self._call_model(
-                model=MODEL_REASONING,
-                fallback_model=MODEL_REASONING_FALLBACK,
+                model=model_target,
+                fallback_model=MODEL_FAST if fast_live_mode else MODEL_REASONING_FALLBACK,
                 messages=[{"role": "user", "content": prompt}],
-                max_tokens=4096,
+                max_tokens=tokens,
                 temperature=0.2,
+                timeout=timeout,
             )
             title = "Coinflip Fix: Deterministic Event Synchronization"
 

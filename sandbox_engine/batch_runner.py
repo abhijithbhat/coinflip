@@ -84,12 +84,14 @@ class SandboxBatchRunner:
         max_concurrency: int = 45,
         mode: Literal["auto", "local_isolated", "nebius_sandbox"] = "auto",
         nebius_image_tag: str = "python:3.12-slim",
+        session_salt: int = 0,
     ) -> None:
         self.repo_dir = Path(repo_dir).resolve()
         self.test_target = test_target
         self.max_concurrency = min(max_concurrency, 45)  # Enforce Nebius Beta 50-operation limit
         self.mode = mode
         self.nebius_image_tag = nebius_image_tag
+        self.session_salt = session_salt
         self._cached_backend: str | None = None
 
     async def probe_sandbox_availability(self) -> bool:
@@ -216,6 +218,9 @@ class SandboxBatchRunner:
         if intensity is not None:
             intensity_val = intensity.value if isinstance(intensity, PerturbationIntensity) else str(intensity)
             cmd.extend(["--intensity", intensity_val])
+        if self.session_salt > 0:
+            cmd.extend(["--session-salt", str(self.session_salt)])
+            env["COINFLIP_SESSION_SALT"] = str(self.session_salt)
 
         proc = await asyncio.create_subprocess_exec(
             *cmd,
@@ -262,18 +267,29 @@ class SandboxBatchRunner:
 
             ctx = build_perturbation_context(perturbation, run_id=0, intensity=resolved_intensity)
 
+            orig_salt = os.environ.get("COINFLIP_SESSION_SALT")
+            if self.session_salt > 0:
+                os.environ["COINFLIP_SESSION_SALT"] = str(self.session_salt)
+
             # Use high-throughput in-process worker pool for sub-0.5s isolated execution
             from sandbox_engine._worker_pool import run_inprocess_worker_pool
 
-            return await asyncio.to_thread(
-                run_inprocess_worker_pool,
-                temp_dir=temp_dir,
-                test_target=self.test_target,
-                perturbation=perturbation,
-                run_ids=list(range(num_runs)),
-                base_seed=1000,
-                intensity=resolved_intensity,
-            )
+            try:
+                return await asyncio.to_thread(
+                    run_inprocess_worker_pool,
+                    temp_dir=temp_dir,
+                    test_target=self.test_target,
+                    perturbation=perturbation,
+                    run_ids=list(range(num_runs)),
+                    base_seed=1000,
+                    intensity=resolved_intensity,
+                    session_salt=self.session_salt,
+                )
+            finally:
+                if orig_salt is None:
+                    os.environ.pop("COINFLIP_SESSION_SALT", None)
+                else:
+                    os.environ["COINFLIP_SESSION_SALT"] = orig_salt
 
             # Small batches (<= 12 runs): standard individual subprocess execution
             if perturbation in (PerturbationType.CPU_HEAVY_LOAD, PerturbationType.CPU_HALF_CORES):

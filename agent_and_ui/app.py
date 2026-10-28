@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 from collections import defaultdict
+from datetime import UTC, datetime
 import hashlib
 import json
 import logging
@@ -144,9 +145,21 @@ BUILTIN_PROFILES: dict[str, dict[str, Any]] = _init_builtin_profiles()
 class RunLiveRequest(BaseModel):
     """Optional payload configuration for POST /api/run-live."""
 
-    case_id: str = Field(
-        default="hero",
+    case_id: Optional[str] = Field(
+        default=None,
         description="Target benchmark case: hero, order_pollution, seed_sampling, clock_expiry, or async_queue_race",
+    )
+    case: Optional[str] = Field(
+        default=None,
+        description="Alias for case_id",
+    )
+    profile: Optional[str] = Field(
+        default=None,
+        description="Alias for case_id",
+    )
+    fast_live_mode: bool = Field(
+        default=True,
+        description="Run in fast interactive live mode (sub-8s)",
     )
     runs_per_condition: int = Field(
         default=30,
@@ -185,33 +198,9 @@ class RunLiveRequest(BaseModel):
 # ---------------------------------------------------------------------------
 # Benchmark Case Execution Registry
 # ---------------------------------------------------------------------------
-CASE_BENCHMARK_CONFIG: dict[str, dict[str, Any]] = {
-    "hero": {
-        "repo_dir": BASE_DIR / "benchmarks" / "hero_worker_race",
-        "test_target": "test_worker.py",
-        "project_name": "example-service",
-    },
-    "order_pollution": {
-        "repo_dir": BASE_DIR / "benchmarks" / "real_world_cases" / "case_01_test_order_pollution",
-        "test_target": "test_config_cache.py",
-        "project_name": "config-service",
-    },
-    "seed_sampling": {
-        "repo_dir": BASE_DIR / "benchmarks" / "real_world_cases" / "case_02_unpinned_seed_sampling",
-        "test_target": "test_sampler.py",
-        "project_name": "sampler-service",
-    },
-    "clock_expiry": {
-        "repo_dir": BASE_DIR / "benchmarks" / "real_world_cases" / "case_03_token_expiry_clock",
-        "test_target": "test_token_ttl.py",
-        "project_name": "auth-service",
-    },
-    "async_queue_race": {
-        "repo_dir": BASE_DIR / "benchmarks" / "real_world_cases" / "case_04_async_queue_race",
-        "test_target": "test_event_queue.py",
-        "project_name": "event-bus",
-    },
-}
+from sandbox_engine.orchestrator import BENCHMARK_CASE_REGISTRY
+
+CASE_BENCHMARK_CONFIG: dict[str, dict[str, Any]] = BENCHMARK_CASE_REGISTRY
 
 LIVE_RUN_LOCK = asyncio.Semaphore(1)
 
@@ -418,6 +407,10 @@ def get_streak_curve() -> list[dict[str, Any]]:
 @app.post("/api/run-live")
 async def run_live(
     request: Request,
+    case: Optional[str] = Query(default=None),
+    case_id: Optional[str] = Query(default=None),
+    profile: Optional[str] = Query(default=None),
+    fresh: Optional[bool] = Query(default=None),
     payload: Optional[RunLiveRequest] = Body(default=None),
 ) -> dict[str, Any]:
     """Runs live flaky test investigation via CoinflipOrchestrator.
@@ -429,13 +422,22 @@ async def run_live(
     _check_rate_limit(request)
     req = payload or RunLiveRequest()
 
+    raw_case = (
+        case
+        or case_id
+        or profile
+        or req.case
+        or req.case_id
+        or req.profile
+        or "hero"
+    )
+    case_key = raw_case if raw_case in CASE_BENCHMARK_CONFIG else "hero"
+    case_cfg = CASE_BENCHMARK_CONFIG[case_key]
+
     clamped_runs = max(10, min(45, req.runs_per_condition))
     stage1_runs = req.stage1_runs if req.stage1_runs is not None else clamped_runs
     stage2_runs = req.stage2_runs if req.stage2_runs is not None else clamped_runs
     stage4_runs = req.stage4_cert_runs if req.stage4_cert_runs is not None else clamped_runs
-
-    case_key = req.case_id if req.case_id in CASE_BENCHMARK_CONFIG else "hero"
-    case_cfg = CASE_BENCHMARK_CONFIG[case_key]
 
     try:
         await asyncio.wait_for(LIVE_RUN_LOCK.acquire(), timeout=30.0)
@@ -448,6 +450,8 @@ async def run_live(
     try:
         from sandbox_engine.orchestrator import CoinflipOrchestrator
 
+        import secrets
+        live_salt = secrets.randbelow(900_000) + 100_000
         orchestrator = CoinflipOrchestrator(
             repo_dir=case_cfg["repo_dir"],
             test_target=case_cfg["test_target"],
@@ -455,6 +459,8 @@ async def run_live(
             max_concurrency=clamped_runs,
             mode="local_isolated",
             execution_backend="local_isolated",
+            case_id=case_key,
+            session_salt=live_salt,
         )
 
         trace = await orchestrator.run(
@@ -470,6 +476,9 @@ async def run_live(
         data["streak_curve_data"] = generate_streak_curve_data()
         data["execution_mode_badge"] = "Live Execution (Coinflip Engine)"
         data["is_fallback"] = False
+        data["trace_origin"] = "live_execution"
+        data["executed_at"] = data.get("executed_at") or datetime.now(UTC).isoformat()
+        data["session_salt"] = live_salt
         data["llm_metadata"] = data.get("llm_call_metadata") or {}
         return enrich_trace_with_advanced_analytics(data)
 
@@ -496,12 +505,15 @@ async def run_live(
 @app.get("/api/stream-live")
 async def stream_live(
     request: Request,
-    case_id: Optional[str] = Query(default=None, description="Benchmark case ID (e.g. hero, order_pollution, seed_sampling, clock_expiry)"),
+    case: Optional[str] = Query(default=None, description="Benchmark case ID (e.g. hero, order_pollution, seed_sampling, clock_expiry, async_queue_race)"),
+    case_id: Optional[str] = Query(default=None, description="Benchmark case ID (e.g. hero, order_pollution, seed_sampling, clock_expiry, async_queue_race)"),
+    profile: Optional[str] = Query(default=None, description="Benchmark case profile"),
     runs: Optional[int] = Query(default=None, description="Number of runs per condition"),
 ) -> StreamingResponse:
     """SSE StreamingResponse emitting real stage progress from CoinflipOrchestrator."""
     _check_rate_limit(request)
-    case_key = case_id if case_id else "hero"
+    raw_case = case or case_id or profile or "hero"
+    case_key = raw_case if raw_case in CASE_BENCHMARK_CONFIG else "hero"
     if case_key not in CASE_BENCHMARK_CONFIG:
         raise HTTPException(
             status_code=400,
@@ -529,6 +541,8 @@ async def stream_live(
             try:
                 from sandbox_engine.orchestrator import CoinflipOrchestrator
 
+                import secrets
+                live_salt = secrets.randbelow(900_000) + 100_000
                 orchestrator = CoinflipOrchestrator(
                     repo_dir=case_cfg["repo_dir"],
                     test_target=case_cfg["test_target"],
@@ -536,6 +550,8 @@ async def stream_live(
                     max_concurrency=clamped_runs,
                     mode="local_isolated",
                     execution_backend="local_isolated",
+                    case_id=case_key,
+                    session_salt=live_salt,
                 )
                 await orchestrator.run_full_pipeline(
                     stage1_runs=clamped_runs,
@@ -563,7 +579,7 @@ async def stream_live(
                 if item is None:
                     break
                 evt, payload = item
-                yield f"event: {evt}\ndata: {json.dumps(payload)}\n\n"
+                yield f"event: {evt}\ndata: {json.dumps(payload, default=str)}\n\n"
         finally:
             if not task.done():
                 task.cancel()

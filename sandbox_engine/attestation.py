@@ -221,6 +221,12 @@ class CertificateAttestor:
         if not records:
             return hashlib.sha256(b"empty_ledger").hexdigest()
 
+        salt = 0
+        if isinstance(trace_or_records, dict):
+            salt = int(trace_or_records.get("session_salt") or 0)
+        elif hasattr(trace_or_records, "session_salt"):
+            salt = int(getattr(trace_or_records, "session_salt", 0) or 0)
+
         # Hash leaf nodes
         leaf_hashes: list[str] = []
         for r in records:
@@ -230,6 +236,8 @@ class CertificateAttestor:
                 pert, total, fails, passes = r[:4]
                 dots = ""
             leaf_str = f"{pert}:{total}:{fails}:{passes}:{dots}"
+            if salt > 0:
+                leaf_str += f":{salt}"
             leaf_hashes.append(hashlib.sha256(leaf_str.encode("utf-8")).hexdigest())
 
         # Iteratively build Merkle root

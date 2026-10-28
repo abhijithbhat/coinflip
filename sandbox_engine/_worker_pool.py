@@ -40,8 +40,14 @@ def run_worker_chunk(
     run_ids: list[int],
     base_seed: int = 1000,
     intensity: PerturbationIntensity | str | None = None,
+    session_salt: int = 0,
 ) -> list[SingleRunResult]:
     """Executes a list of run_ids sequentially within this worker process."""
+    if session_salt == 0:
+        try:
+            session_salt = int(os.environ.get("COINFLIP_SESSION_SALT", "0"))
+        except ValueError:
+            session_salt = 0
     temp_dir = Path(temp_dir).resolve()
     orig_cwd = os.getcwd()
     hooks_dir = Path(__file__).resolve().parent
@@ -108,12 +114,21 @@ def run_worker_chunk(
 
     results: list[SingleRunResult] = []
 
+    # When session_salt is provided, incorporate it into worker chunk execution ordering
+    exec_run_ids = list(run_ids)
+    if session_salt > 0:
+        import random
+        pert_val = getattr(perturbation, "value", str(perturbation))
+        pert_hash = hash(pert_val)
+        order_rng = random.Random(session_salt * 53 + pert_hash)
+        order_rng.shuffle(exec_run_ids)
+
     try:
         if can_direct_exec:
             from sandbox_engine._pytest_hooks import perturbation_runtime_context
 
             # High-throughput in-process direct execution loop
-            for run_id in run_ids:
+            for run_id in exec_run_ids:
                 # Clear any lingering perturbation env vars
                 for k in (
                     "COINFLIP_CPU_LOAD",
@@ -148,7 +163,7 @@ def run_worker_chunk(
                         funcs_to_run = mutating_funcs + mutating_funcs + direct_test_funcs
                     else:  # L2_MODERATE
                         import random
-                        rng = random.Random(10000 + run_id * 37)
+                        rng = random.Random(10000 + (run_id + session_salt) * 37)
                         permuted = list(funcs_to_run)
                         rng.shuffle(permuted)
                         if permuted == funcs_to_run:
@@ -162,7 +177,7 @@ def run_worker_chunk(
 
                 try:
                     with perturbation_runtime_context(
-                        perturbation, run_id=run_id, base_seed=base_seed, intensity=ctx.intensity
+                        perturbation, run_id=run_id, base_seed=base_seed, intensity=ctx.intensity, session_salt=session_salt
                     ):
                         for f in funcs_to_run:
                             f()
@@ -187,11 +202,14 @@ def run_worker_chunk(
             # Fallback path: pytest.main for fixture-heavy tests
             import pytest
 
-            for run_id in run_ids:
+            for run_id in exec_run_ids:
                 sys.modules.pop(mod_name, None)
+                salt_offset = (session_salt % 10000) if session_salt > 0 else 0
                 ctx = build_perturbation_context(
-                    perturbation, run_id=run_id, base_seed=base_seed, intensity=intensity
+                    perturbation, run_id=run_id, base_seed=base_seed + salt_offset, intensity=intensity
                 )
+                if session_salt > 0:
+                    os.environ["COINFLIP_SESSION_SALT"] = str(session_salt)
                 os.environ.update(ctx.env_vars)
 
                 pytest_args = [
@@ -260,6 +278,7 @@ def run_inprocess_worker_pool(
     base_seed: int = 1000,
     num_workers: int | None = None,
     intensity: PerturbationIntensity | str | None = None,
+    session_salt: int = 0,
 ) -> list[SingleRunResult]:
     """Runs a batch of test runs across high-throughput in-process workers.
 
@@ -280,6 +299,7 @@ def run_inprocess_worker_pool(
         run_ids=run_ids,
         base_seed=base_seed,
         intensity=intensity,
+        session_salt=session_salt,
     )
 
 
@@ -291,6 +311,7 @@ def main() -> None:
     parser.add_argument("--run-ids", required=True, help="Comma-separated run IDs")
     parser.add_argument("--base-seed", type=int, default=1000, help="Base seed for perturbation")
     parser.add_argument("--intensity", default=None, help="Perturbation intensity level")
+    parser.add_argument("--session-salt", type=int, default=0, help="Session salt for live variance")
     args = parser.parse_args()
 
     temp_dir = Path(args.temp_dir).resolve()
@@ -305,6 +326,7 @@ def main() -> None:
         run_ids=run_ids,
         base_seed=args.base_seed,
         intensity=intensity,
+        session_salt=args.session_salt,
     )
 
     serialized = [r.model_dump() for r in results]

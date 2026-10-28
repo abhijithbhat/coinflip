@@ -381,8 +381,16 @@ class CoinflipCertificateTrace(BaseModel):
         default="recorded_execution",
         description="Origin of trace data: live_execution, recorded_execution, or illustrative_reference",
     )
+    executed_at: str | None = Field(
+        default=None,
+        description="ISO 8601 UTC timestamp of live run completion",
+    )
     amplifier_report: FlakeAmplifierReport | None = Field(
         default=None,
         description="Optional Flake Amplifier report evaluating perturbation arms via successive halving",
+    )
+    session_salt: int = Field(
+        default=0,
+        description="Optional per-session salt for live runs",
     )
 

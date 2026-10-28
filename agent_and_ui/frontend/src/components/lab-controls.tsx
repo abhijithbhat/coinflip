@@ -95,7 +95,7 @@ export function CommandBar({ trace, busy, note, onLive, caseId, caseBusy, onCase
         ) : (
           <Button size="sm" onClick={onLive} disabled={busy || caseBusy}>
             {busy ? <Loader2 className="animate-spin" /> : <Play />}
-            {busy ? "Running live mini-batch…" : "▶ Run Live Mini-Batch (30 runs)"}
+            {busy ? "Running live mini-batch…" : "▶ Run Live Mini-Batch (~5-7s)"}
           </Button>
         )}
       </div>
@@ -107,7 +107,7 @@ export function CommandBar({ trace, busy, note, onLive, caseId, caseBusy, onCase
           <Loader2 className="animate-spin w-3.5 h-3.5" />
           <span>Executing Live Sandbox ({BENCHMARK_CASES.find(c => c.id === caseId)?.name}): Measuring baseline &amp; running stress perturbations...</span>
         </span>
-        <span className="opacity-75 font-mono">~10-12s</span>
+        <span className="opacity-75 font-mono">~5-7s</span>
       </div>
     )}
     {busy && <div className="live-progress" />}

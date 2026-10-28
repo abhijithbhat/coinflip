@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
@@ -40,13 +41,88 @@ from shared_contracts.schemas import (
 
 logger = logging.getLogger("sandbox_engine.orchestrator")
 
+ROOT_BENCHMARKS_DIR = Path(__file__).resolve().parent.parent / "benchmarks"
+
+BENCHMARK_CASE_REGISTRY: dict[str, dict[str, Any]] = {
+    "hero": {
+        "repo_dir": ROOT_BENCHMARKS_DIR / "hero_worker_race",
+        "benchmark_dir": ROOT_BENCHMARKS_DIR / "hero_worker_race",
+        "test_file": "test_worker.py",
+        "test_target": "test_worker.py",
+        "target_file": "worker_service.py",
+        "naive_patch": ROOT_BENCHMARKS_DIR / "hero_worker_race" / "patches" / "naive_quick_fix.py",
+        "certified_patch": ROOT_BENCHMARKS_DIR / "hero_worker_race" / "patches" / "certified_real_fix.py",
+        "trigger": PerturbationType.CPU_HEAVY_LOAD,
+        "expected_trigger": PerturbationType.CPU_HEAVY_LOAD,
+        "causal_perturbation_family": PerturbationType.CPU_HEAVY_LOAD,
+        "triggering_condition": PerturbationType.CPU_HEAVY_LOAD,
+        "project_name": "example-service",
+    },
+    "order_pollution": {
+        "repo_dir": ROOT_BENCHMARKS_DIR / "real_world_cases" / "case_01_test_order_pollution",
+        "benchmark_dir": ROOT_BENCHMARKS_DIR / "real_world_cases" / "case_01_test_order_pollution",
+        "test_file": "test_config_cache.py",
+        "test_target": "test_config_cache.py",
+        "target_file": "config_service.py",
+        "naive_patch": ROOT_BENCHMARKS_DIR / "real_world_cases" / "case_01_test_order_pollution" / "patches" / "naive_quick_fix.py",
+        "certified_patch": ROOT_BENCHMARKS_DIR / "real_world_cases" / "case_01_test_order_pollution" / "patches" / "certified_real_fix.py",
+        "trigger": PerturbationType.SHUFFLE_ORDER,
+        "expected_trigger": PerturbationType.SHUFFLE_ORDER,
+        "causal_perturbation_family": PerturbationType.SHUFFLE_ORDER,
+        "triggering_condition": PerturbationType.SHUFFLE_ORDER,
+        "project_name": "config-service",
+    },
+    "seed_sampling": {
+        "repo_dir": ROOT_BENCHMARKS_DIR / "real_world_cases" / "case_02_unpinned_seed_sampling",
+        "benchmark_dir": ROOT_BENCHMARKS_DIR / "real_world_cases" / "case_02_unpinned_seed_sampling",
+        "test_file": "test_sampler.py",
+        "test_target": "test_sampler.py",
+        "target_file": "sampler.py",
+        "naive_patch": ROOT_BENCHMARKS_DIR / "real_world_cases" / "case_02_unpinned_seed_sampling" / "patches" / "naive_quick_fix.py",
+        "certified_patch": ROOT_BENCHMARKS_DIR / "real_world_cases" / "case_02_unpinned_seed_sampling" / "patches" / "certified_real_fix.py",
+        "trigger": PerturbationType.SEED_CHANGE,
+        "expected_trigger": PerturbationType.SEED_CHANGE,
+        "causal_perturbation_family": PerturbationType.SEED_CHANGE,
+        "triggering_condition": PerturbationType.SEED_CHANGE,
+        "project_name": "sampler-service",
+    },
+    "clock_expiry": {
+        "repo_dir": ROOT_BENCHMARKS_DIR / "real_world_cases" / "case_03_token_expiry_clock",
+        "benchmark_dir": ROOT_BENCHMARKS_DIR / "real_world_cases" / "case_03_token_expiry_clock",
+        "test_file": "test_token_ttl.py",
+        "test_target": "test_token_ttl.py",
+        "target_file": "token_cache.py",
+        "naive_patch": ROOT_BENCHMARKS_DIR / "real_world_cases" / "case_03_token_expiry_clock" / "patches" / "naive_quick_fix.py",
+        "certified_patch": ROOT_BENCHMARKS_DIR / "real_world_cases" / "case_03_token_expiry_clock" / "patches" / "certified_real_fix.py",
+        "trigger": PerturbationType.CLOCK_SHIFT,
+        "expected_trigger": PerturbationType.CLOCK_SHIFT,
+        "causal_perturbation_family": PerturbationType.CLOCK_SHIFT,
+        "triggering_condition": PerturbationType.CLOCK_SHIFT,
+        "project_name": "auth-service",
+    },
+    "async_queue_race": {
+        "repo_dir": ROOT_BENCHMARKS_DIR / "real_world_cases" / "case_04_async_queue_race",
+        "benchmark_dir": ROOT_BENCHMARKS_DIR / "real_world_cases" / "case_04_async_queue_race",
+        "test_file": "test_event_queue.py",
+        "test_target": "test_event_queue.py",
+        "target_file": "event_queue.py",
+        "naive_patch": ROOT_BENCHMARKS_DIR / "real_world_cases" / "case_04_async_queue_race" / "patches" / "naive_quick_fix.py",
+        "certified_patch": ROOT_BENCHMARKS_DIR / "real_world_cases" / "case_04_async_queue_race" / "patches" / "certified_real_fix.py",
+        "trigger": PerturbationType.CPU_HEAVY_LOAD,
+        "expected_trigger": PerturbationType.CPU_HEAVY_LOAD,
+        "causal_perturbation_family": PerturbationType.CPU_HEAVY_LOAD,
+        "triggering_condition": PerturbationType.CPU_HEAVY_LOAD,
+        "project_name": "event-bus",
+    },
+}
+
 
 class CoinflipOrchestrator:
     """End-to-end 5-stage automated flaky test investigator and certifier."""
 
     def __init__(
         self,
-        repo_dir: Path | str = ".",
+        repo_dir: Path | str | None = None,
         test_target: str = "test_worker.py",
         project_name: str = "example-service",
         max_concurrency: int = 45,
@@ -56,10 +132,55 @@ class CoinflipOrchestrator:
         llm_bridge: NemotronBridge | None = None,
         stats_provider: Any = None,
         agent_provider: Any = None,
+        case_id: str = "hero",
+        session_salt: int = 0,
     ) -> None:
-        self.repo_dir = Path(repo_dir).resolve()
-        self.test_target = test_target
-        self.project_name = project_name
+        self.session_salt = session_salt
+
+        # Resolve benchmark case if provided either by case_id or if repo_dir matches a registered case
+        case_lookup = case_id if (case_id and case_id in BENCHMARK_CASE_REGISTRY) else None
+        if not case_lookup and repo_dir:
+            for k, v in BENCHMARK_CASE_REGISTRY.items():
+                if str(repo_dir) == k or Path(repo_dir).resolve() == Path(v["repo_dir"]).resolve():
+                    case_lookup = k
+                    break
+
+        if case_lookup and case_lookup in BENCHMARK_CASE_REGISTRY:
+            cfg = BENCHMARK_CASE_REGISTRY[case_lookup]
+            # If a custom repo_dir was passed that does NOT match the benchmark dir and case_id defaulted to "hero", treat as custom
+            if (
+                repo_dir is not None
+                and Path(repo_dir).resolve() != Path(cfg["repo_dir"]).resolve()
+                and str(repo_dir) not in BENCHMARK_CASE_REGISTRY
+                and case_id == "hero"
+            ):
+                self.repo_dir = Path(repo_dir).resolve()
+                self.test_target = test_target
+                self.project_name = project_name
+                self.target_file = None
+                self.naive_patch_path = None
+                self.certified_patch_path = None
+                self.expected_trigger = None
+                self.case_id = "custom"
+            else:
+                self.repo_dir = Path(repo_dir or cfg["repo_dir"]).resolve()
+                self.test_target = cfg.get("test_file") or cfg.get("test_target") or test_target
+                self.target_file = cfg.get("target_file")
+                self.naive_patch_path = cfg.get("naive_patch")
+                self.certified_patch_path = cfg.get("certified_patch")
+                self.expected_trigger = cfg.get("trigger") or cfg.get("causal_perturbation_family")
+                self.project_name = cfg.get("project_name", project_name)
+                self.case_id = case_lookup
+        else:
+            self.repo_dir = Path(repo_dir or ".").resolve()
+            self.test_target = test_target
+            self.project_name = project_name
+            self.target_file = None
+            self.naive_patch_path = None
+            self.certified_patch_path = None
+            self.expected_trigger = None
+            self.case_id = case_id or "hero"
+
         self.max_concurrency = max_concurrency
         self.mode = execution_backend if execution_backend in ("local_isolated", "nebius_sandbox", "auto") else mode
         self.output_trace_path = (
@@ -114,6 +235,7 @@ class CoinflipOrchestrator:
         demonstrate_rejection_catch: bool = True,
         fast_live_mode: bool = False,
         on_stage_event: Any = None,
+        session_salt: int | None = None,
     ) -> CoinflipCertificateTrace:
         """Executes the full 5-stage Coinflip pipeline.
 
@@ -126,13 +248,25 @@ class CoinflipOrchestrator:
                                          to demonstrate the stress-rejection catch before the real fix.
             fast_live_mode: If True, optimizes for sub-12s interactive live demo execution.
             on_stage_event: Optional callback receiving (event_name, data_dict) for real-time SSE progress.
+            session_salt: Optional integer seed salt for deterministic yet unique perturbation runs.
 
         Returns:
             CoinflipCertificateTrace: Validated end-to-end trace artifact.
         """
+        if session_salt is not None:
+            self.session_salt = session_salt
+        elif fast_live_mode and self.session_salt == 0:
+            import secrets
+            self.session_salt = secrets.randbelow(900_000) + 100_000
+
+        if fast_live_mode:
+            stage1_runs = 25
+            stage2_runs = 20
+            stage4_cert_runs = 50
+
         trace_id = f"coinflip_trace_{uuid.uuid4().hex[:12]}"
         timestamp_utc = datetime.now(UTC).isoformat()
-        logger.info("Starting Coinflip Run %s for %s::%s (fast_live_mode=%s)", trace_id, self.project_name, self.test_target, fast_live_mode)
+        logger.info("Starting Coinflip Run %s for %s::%s (fast_live_mode=%s, salt=%s)", trace_id, self.project_name, self.test_target, fast_live_mode, self.session_salt)
 
         def _notify(evt: str, data: dict[str, Any]) -> None:
             if on_stage_event is not None:
@@ -163,6 +297,7 @@ class CoinflipOrchestrator:
             test_target=self.test_target,
             max_concurrency=self.max_concurrency,
             mode=active_mode,
+            session_salt=self.session_salt,
         )
 
         stage1_baseline = await runner.run_batch(
@@ -193,21 +328,29 @@ class CoinflipOrchestrator:
             sample_failure_logs = [f"AssertionError in {self.test_target} under baseline conditions."]
 
         summary_task: asyncio.Task[str] = asyncio.create_task(
-            asyncio.to_thread(self.llm.summarize_failure_logs, sample_failure_logs)
+            asyncio.to_thread(self.llm.summarize_failure_logs, sample_failure_logs, fast_live_mode)
         )
 
         # Read original test code from base snapshot for AST analysis & AI repair
         test_file_path = base_snapshot_path / self.test_target
         original_test_code = test_file_path.read_text(encoding="utf-8") if test_file_path.exists() else ""
 
-        # Read companion service code if available in base snapshot
+        # Read companion service / target code if available in base snapshot
         service_code = ""
-        for p in base_snapshot_path.glob("*.py"):
-            if not p.name.startswith("test_") and p.name not in ("conftest.py", "__init__.py"):
+        if getattr(self, "target_file", None):
+            target_path = base_snapshot_path / self.target_file
+            if target_path.exists():
                 try:
-                    service_code += f"# {p.name}:\n{p.read_text(encoding='utf-8')}\n\n"
+                    service_code = target_path.read_text(encoding="utf-8")
                 except Exception:
                     pass
+        if not service_code:
+            for p in base_snapshot_path.glob("*.py"):
+                if not p.name.startswith("test_") and p.name not in ("conftest.py", "__init__.py"):
+                    try:
+                        service_code += f"# {p.name}:\n{p.read_text(encoding='utf-8')}\n\n"
+                    except Exception:
+                        pass
 
         # ---------------------------------------------------------------------
         # STAGE 2: FLAKE AMPLIFIER (SUCCESSIVE HALVING SEARCH) & PERTURBATION LEDGER
@@ -231,6 +374,8 @@ class CoinflipOrchestrator:
             test_target=self.test_target,
             baseline_result=stage1_baseline,
             hypotheses=hypotheses,
+            exploration_budget=24 if fast_live_mode else 60,
+            confirmation_budget=20 if fast_live_mode else 40,
             fast_live_mode=fast_live_mode,
         )
         amplifier_report: FlakeAmplifierReport
@@ -324,7 +469,8 @@ class CoinflipOrchestrator:
 
         # Collect concurrent log summary from Nebius Token Factory
         try:
-            log_summary = await asyncio.wait_for(summary_task, timeout=12.0)
+            summary_timeout = 4.5 if fast_live_mode else 12.0
+            log_summary = await asyncio.wait_for(summary_task, timeout=summary_timeout)
         except Exception as e:
             logger.warning("Concurrent Nebius log summarization failed (%s). Using fallback summary.", e)
             log_summary = f"Observed {stage1_baseline.failures} assertion failures in {self.test_target}."
@@ -339,10 +485,29 @@ class CoinflipOrchestrator:
             max_concurrency=self.max_concurrency,
             mode=active_mode,
             stats_provider=self.stats_provider,
+            session_salt=self.session_salt,
         )
 
         fix_attempts: list[CandidateFixEvaluation] = []
         attempt_number = 1
+
+        cert_patch_file = Path(getattr(self, "certified_patch_path", None) or (self.repo_dir / "patches" / "certified_real_fix.py"))
+        naive_patch_file = Path(getattr(self, "naive_patch_path", None) or (self.repo_dir / "patches" / "naive_quick_fix.py"))
+
+        # Launch Nemotron diagnosis concurrently in background task
+        nemotron_timeout = 4.5 if fast_live_mode else 12.0
+        diag_start_time = time.perf_counter()
+        diagnosis_task: asyncio.Task[Any] = asyncio.create_task(
+            asyncio.to_thread(
+                self.llm.diagnose_and_propose_fix,
+                test_code=original_test_code,
+                stage1_baseline=stage1_baseline,
+                stage2_ledger=stage2_ledger,
+                previous_rejected_attempts=fix_attempts,
+                service_code=service_code,
+                fast_live_mode=fast_live_mode,
+            )
+        )
 
         # Attempt 1: Evaluate Naive Quick Fix if demonstration requested
         if demonstrate_rejection_catch:
@@ -354,7 +519,6 @@ class CoinflipOrchestrator:
             logger.info("[STAGE 3/4 - ATTEMPT 1] Evaluating Naive Quick Fix (raising timeout/sleep)...")
 
             # Check if benchmark folder has a pre-built naive patch
-            naive_patch_file = self.repo_dir / "patches" / "naive_quick_fix.py"
             if naive_patch_file.exists():
                 qf_title = "Naive Quick Fix (Static Workaround)"
                 qf_diag = "Attempted symptom-level workaround without addressing root concurrency/state invariant."
@@ -398,24 +562,17 @@ class CoinflipOrchestrator:
         })
         logger.info("[STAGE 3/4 - ATTEMPT 2] Calling Nemotron with Stress Rejection Evidence...")
 
-        cert_patch_file = self.repo_dir / "patches" / "certified_real_fix.py"
         real_title = "Coinflip Certified Fix"
         real_diag = "Root cause identified and repaired with deterministic invariant synchronization."
         real_code = original_test_code
 
         nemotron_call_ok = False
+        elapsed_diag = time.perf_counter() - diag_start_time
+        remaining_timeout = max(0.1, nemotron_timeout - elapsed_diag)
         try:
             real_title, real_diag, real_code = await asyncio.wait_for(
-                asyncio.to_thread(
-                    self.llm.diagnose_and_propose_fix,
-                    test_code=original_test_code,
-                    stage1_baseline=stage1_baseline,
-                    stage2_ledger=stage2_ledger,
-                    previous_rejected_attempts=fix_attempts,
-                    service_code=service_code,
-                    fast_live_mode=fast_live_mode,
-                ),
-                timeout=12.0,  # 12.0s realistic timeout for real Nebius Token Factory call
+                diagnosis_task,
+                timeout=remaining_timeout,
             )
             nemotron_call_ok = True
         except Exception as e:
@@ -431,6 +588,7 @@ class CoinflipOrchestrator:
                     stage2_ledger=stage2_ledger,
                     previous_rejected_attempts=fix_attempts,
                     service_code=service_code,
+                    fast_live_mode=fast_live_mode,
                 )
 
         diag_meta = getattr(self.llm, "diagnose_call_metadata", {}) or {}
@@ -524,6 +682,9 @@ class CoinflipOrchestrator:
             models_used=models_used,
             race_timeline=race_profile,
             llm_call_metadata=llm_metadata,
+            trace_origin="live_execution",
+            executed_at=datetime.now(UTC).isoformat(),
+            session_salt=self.session_salt,
         )
 
         # Cryptographically sign trace with SHA-256 Merkle attestation

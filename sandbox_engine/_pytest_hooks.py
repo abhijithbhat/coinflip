@@ -48,8 +48,18 @@ def perturbation_runtime_context(
     run_id: int = 0,
     base_seed: int = 1000,
     intensity: PerturbationIntensity | str | None = None,
+    session_salt: int = 0,
 ) -> Generator[None, None, None]:
     """Applies a runtime perturbation externally with intensity support and restores state upon exit."""
+    if session_salt == 0:
+        salt_str = os.environ.get("COINFLIP_SESSION_SALT", "0")
+        try:
+            session_salt = int(salt_str)
+        except ValueError:
+            session_salt = 0
+
+    is_fast_live = os.environ.get("COINFLIP_FAST_LIVE_MODE") == "1" or os.environ.get("COINFLIP_FAST_MODE") == "1"
+
     pert_normalized = str(perturbation).lower() if perturbation else ""
     if hasattr(perturbation, "value"):
         pert_normalized = str(perturbation.value).lower()
@@ -81,28 +91,60 @@ def perturbation_runtime_context(
     burner_threads: list[threading.Thread] = []
     clock_call_counter = 0
     orig_random_methods: dict[str, Any] = {}
+    orig_rng_state = random.getstate()
 
     try:
         # 1. CPU Contention / GIL Stress (CPU_HEAVY_LOAD & CPU_HALF_CORES)
         if pert_normalized in ("cpu_heavy_load", "cpu_load", "cpu_half_cores", "half_cores"):
-            if resolved_intensity == PerturbationIntensity.L1_MILD:
-                sys.setswitchinterval(0.00005)  # 50 microseconds
-                worker_count = 2
-                is_extreme = False
-            elif resolved_intensity == PerturbationIntensity.L2_MODERATE:
-                sys.setswitchinterval(0.000005)  # 5 microseconds
-                worker_count = 4
-                is_extreme = False
-            else:  # L3_EXTREME
-                sys.setswitchinterval(0.000001)  # 1 microsecond
-                worker_count = 8
-                is_extreme = True
+            if is_fast_live:
+                if resolved_intensity == PerturbationIntensity.L1_MILD:
+                    switch_interval = 0.00005
+                    worker_count = 1
+                    is_extreme = False
+                elif resolved_intensity == PerturbationIntensity.L2_MODERATE:
+                    switch_interval = 0.00001
+                    worker_count = 2
+                    is_extreme = False
+                else:  # L3_EXTREME
+                    switch_interval = 0.000005
+                    worker_count = 3
+                    is_extreme = True
+            else:
+                if resolved_intensity == PerturbationIntensity.L1_MILD:
+                    switch_interval = 0.00005  # 50 microseconds
+                    worker_count = 2
+                    is_extreme = False
+                elif resolved_intensity == PerturbationIntensity.L2_MODERATE:
+                    switch_interval = 0.000005  # 5 microseconds
+                    worker_count = 4
+                    is_extreme = False
+                else:  # L3_EXTREME
+                    switch_interval = 0.000001  # 1 microsecond
+                    worker_count = 8
+                    is_extreme = True
+
+            if session_salt > 0:
+                jitter_factor = 1.0 + (((session_salt * 17 + run_id * 13) % 15) - 7) * 0.02
+                switch_interval = max(0.0000005, switch_interval * jitter_factor)
+
+            sys.setswitchinterval(switch_interval)
 
             burner_stop = threading.Event()
             _BURNER_STOP_EVENT = burner_stop
 
             def _burn_loop() -> None:
-                if is_extreme:
+                if is_fast_live:
+                    burn_start = time.perf_counter()
+                    x = 1.0001
+                    burn_ceiling = 0.004
+                    if session_salt > 0:
+                        burn_ceiling *= (1.0 + (((session_salt * 19 + run_id * 31) % 17) - 8) * 0.02)
+                    while not burner_stop.is_set():
+                        x = (x * 1.00001) % 1000.0
+                        if (time.perf_counter() - burn_start) > burn_ceiling:
+                            time.sleep(0.0005)
+                            burn_start = time.perf_counter()
+                elif is_extreme:
                     d: dict[int, float] = {}
                     x = 1.0001
                     idx = 0
@@ -124,15 +166,16 @@ def perturbation_runtime_context(
         # 2. Seed Change
         if pert_normalized in ("seed_change", "seed"):
             if resolved_intensity == PerturbationIntensity.L1_MILD:
-                per_run_seed = 10000 + run_id * 7919
+                per_run_seed = 10000 + (run_id + session_salt) * 7919
                 seed_str = os.environ.get("COINFLIP_RANDOM_SEED")
                 if seed_str:
                     try:
-                        per_run_seed = int(seed_str)
+                        per_run_seed = int(seed_str) + session_salt
                     except ValueError:
                         pass
             else:
-                per_run_seed = ADVERSARIAL_BOUNDARY_SEEDS[run_id % len(ADVERSARIAL_BOUNDARY_SEEDS)]
+                salt_offset = (session_salt * 31) if session_salt > 0 else 0
+                per_run_seed = ADVERSARIAL_BOUNDARY_SEEDS[(run_id + salt_offset) % len(ADVERSARIAL_BOUNDARY_SEEDS)]
 
             random.seed(per_run_seed)
             if "numpy.random" in sys.modules:
@@ -179,6 +222,9 @@ def perturbation_runtime_context(
             else:  # L2_MODERATE
                 base_shift = 3600.0
                 call_skew = 0.15
+
+            if session_salt > 0:
+                call_skew += (((session_salt + run_id * 19) % 7) - 3) * 0.005
 
             def _shifted_time() -> float:
                 nonlocal clock_call_counter
@@ -231,6 +277,13 @@ def perturbation_runtime_context(
                 socket.socket.connect = _blocked_connect  # type: ignore[assignment]
                 socket.create_connection = _blocked_connect  # type: ignore[assignment]
 
+        if session_salt > 0:
+            def _jittered_sleep(secs: float) -> None:
+                jitter_pct = (((session_salt * 37 + run_id * 23) % 19) - 9) * 0.012
+                _ORIG_SLEEP(max(0.0001, secs * (1.0 + jitter_pct)))
+
+            time.sleep = _jittered_sleep
+
         yield
 
     finally:
@@ -251,6 +304,7 @@ def perturbation_runtime_context(
 
         # Restore patched functions
         time.time = _ORIG_TIME
+        time.sleep = _ORIG_SLEEP
         socket.socket.connect = _ORIG_SOCKET_CONNECT  # type: ignore[assignment]
         socket.create_connection = _ORIG_CREATE_CONNECTION  # type: ignore[assignment]
 
@@ -258,6 +312,10 @@ def perturbation_runtime_context(
         for m_name, orig_fn in orig_random_methods.items():
             setattr(random, m_name, orig_fn)
         orig_random_methods.clear()
+        try:
+            random.setstate(orig_rng_state)
+        except Exception:
+            pass
 
 
 # ---------------------------------------------------------------------------
@@ -285,6 +343,10 @@ def pytest_collection_modifyitems(session: Any, config: Any, items: list[Any]) -
                 seed_val = int(os.environ.get("COINFLIP_RANDOM_SEED", "1000"))
             except ValueError:
                 seed_val = 1000
+            try:
+                seed_val += int(os.environ.get("COINFLIP_SESSION_SALT", "0"))
+            except ValueError:
+                pass
             rng = random.Random(seed_val)
             shuffled = list(items)
             rng.shuffle(shuffled)
@@ -315,8 +377,18 @@ def pytest_runtest_setup(item: Any) -> None:
         except ValueError:
             pass
 
+    session_salt = 0
+    salt_str = os.environ.get("COINFLIP_SESSION_SALT")
+    if salt_str:
+        try:
+            session_salt = int(salt_str)
+        except ValueError:
+            pass
+
     intensity_str = os.environ.get("COINFLIP_INTENSITY")
-    _ACTIVE_CONTEXT = perturbation_runtime_context(pert, run_id=run_id, intensity=intensity_str)
+    _ACTIVE_CONTEXT = perturbation_runtime_context(
+        pert, run_id=run_id, intensity=intensity_str, session_salt=session_salt
+    )
     _ACTIVE_CONTEXT.__enter__()
 
 
