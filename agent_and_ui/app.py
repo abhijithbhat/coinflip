@@ -15,10 +15,13 @@ Provides REST API endpoints for:
 from __future__ import annotations
 
 import asyncio
+from collections import defaultdict
 import hashlib
 import json
 import logging
+import os
 from pathlib import Path
+import time
 from typing import Any, AsyncGenerator, Optional
 
 from fastapi import Body, FastAPI, HTTPException, Query, Request
@@ -212,6 +215,46 @@ CASE_BENCHMARK_CONFIG: dict[str, dict[str, Any]] = {
 
 LIVE_RUN_LOCK = asyncio.Semaphore(1)
 
+# ---------------------------------------------------------------------------
+# Rate Limiting Configuration (Protects Nebius credits & container resources)
+# ---------------------------------------------------------------------------
+_LIVE_RUN_HISTORY: dict[str, list[float]] = defaultdict(list)
+RATE_LIMIT_MAX_RUNS = int(os.getenv("COINFLIP_RATE_LIMIT_RUNS", "10"))
+RATE_LIMIT_WINDOW_SECONDS = 3600.0
+
+
+def _get_client_ip(request: Request) -> str:
+    """Extracts client IP address checking X-Forwarded-For before client host."""
+    forwarded = request.headers.get("x-forwarded-for")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    if request.client and request.client.host:
+        return request.client.host
+    return "unknown"
+
+
+def _check_rate_limit(request: Request) -> None:
+    """Checks per-IP sliding window rate limit for live execution endpoints.
+
+    Exempts internal testclient calls in pytest unless 'x-test-rate-limit' header is sent.
+    Raises HTTPException(429) if exceeded.
+    """
+    client_ip = _get_client_ip(request)
+    if client_ip == "testclient" and "x-test-rate-limit" not in request.headers:
+        return
+
+    now = time.time()
+    cutoff = now - RATE_LIMIT_WINDOW_SECONDS
+    timestamps = [ts for ts in _LIVE_RUN_HISTORY[client_ip] if ts > cutoff]
+    if len(timestamps) >= RATE_LIMIT_MAX_RUNS:
+        _LIVE_RUN_HISTORY[client_ip] = timestamps
+        raise HTTPException(
+            status_code=429,
+            detail=f"Rate limit exceeded: maximum {RATE_LIMIT_MAX_RUNS} live runs per hour per IP.",
+        )
+    timestamps.append(now)
+    _LIVE_RUN_HISTORY[client_ip] = timestamps
+
 
 def _load_recorded_trace(name: str) -> dict[str, Any] | None:
     """Attempts to load a recorded trace JSON from shared_contracts/recorded_traces/{name}.json."""
@@ -254,9 +297,14 @@ app.add_middleware(
 
 
 @app.get("/api/health")
-def health() -> dict[str, str]:
+def health() -> dict[str, Any]:
     """Health check endpoint."""
-    return {"status": "ok", "service": "coinflip-agent-ui"}
+    return {
+        "status": "ok",
+        "service": "coinflip-agent-ui",
+        "nebius_configured": bool(os.getenv("NEBIUS_API_KEY")),
+        "traces_loaded": len(ARCHETYPE_CATALOG),
+    }
 
 
 @app.get("/api/trace")
@@ -369,6 +417,7 @@ def get_streak_curve() -> list[dict[str, Any]]:
 
 @app.post("/api/run-live")
 async def run_live(
+    request: Request,
     payload: Optional[RunLiveRequest] = Body(default=None),
 ) -> dict[str, Any]:
     """Runs live flaky test investigation via CoinflipOrchestrator.
@@ -377,6 +426,7 @@ async def run_live(
     Acquires LIVE_RUN_LOCK with a 30.0s timeout and always releases in finally.
     Raises HTTPException 503 if live execution fails.
     """
+    _check_rate_limit(request)
     req = payload or RunLiveRequest()
 
     clamped_runs = max(10, min(45, req.runs_per_condition))
@@ -450,6 +500,7 @@ async def stream_live(
     runs: Optional[int] = Query(default=None, description="Number of runs per condition"),
 ) -> StreamingResponse:
     """SSE StreamingResponse emitting real stage progress from CoinflipOrchestrator."""
+    _check_rate_limit(request)
     case_key = case_id if case_id else "hero"
     if case_key not in CASE_BENCHMARK_CONFIG:
         raise HTTPException(

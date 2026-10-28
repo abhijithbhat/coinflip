@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: coinflip
+    runtime: docker
+    plan: free
+    healthCheckPath: /api/health
+    envVars:
+      - key: PORT
+        value: 8000
+      - key: NEBIUS_API_KEY
+        sync: false
+      - key: NEBIUS_PROJECT_ID
+        sync: false
+      - key: NEBIUS_BASE_URL
+        value: https://api.tokenfactory.nebius.com/v1/
+      - key: COINFLIP_ATTESTATION_SECRET
+        sync: false
+
