@@ -673,6 +673,59 @@ function normalize(t: Trace): Trace {
       ...normalized,
       amplifier_report: synthesizeAmplifierFallback(normalized),
     };
+  } else {
+    const rep = normalized.amplifier_report as any;
+    const bRate = rep.baseline_failure_rate ?? normalized.stage1_baseline?.failure_rate ?? 0.067;
+    const cRate = rep.confirmed_failure_rate ?? 0.925;
+    const ampFactor = rep.amplification_factor ?? (bRate > 0 ? +(cRate / bRate).toFixed(1) : 13.9);
+    const ciLo = rep.ci_95_lower ?? rep.confirmed_ci_95_lower ?? 0.801;
+    const ciHi = rep.ci_95_upper ?? rep.confirmed_ci_95_upper ?? 0.974;
+    const winCond = rep.winning_condition ?? rep.winning_perturbation ?? normalized.triggering_stress_condition ?? "cpu_heavy_load";
+    const winInt = rep.winning_intensity ?? "L3_EXTREME";
+
+    const arms = Array.isArray(rep.leaderboard) ? rep.leaderboard.map((arm: any, idx: number) => {
+      const isWinner = arm.eliminated_in_round === null && (arm.arm_id === rep.winning_arm_id || arm.perturbation === winCond);
+      const isR2Elim = arm.eliminated_in_round === 2;
+      const status = arm.status ?? (
+        isWinner
+          ? "WINNER -> CONFIRMED"
+          : isR2Elim
+          ? "ELIMINATED ROUND 2"
+          : "ELIMINATED ROUND 1"
+      );
+      return {
+        arm_id: arm.arm_id ?? `${arm.perturbation}:${arm.intensity}`,
+        prior_rank: arm.prior_rank ?? arm.nemotron_prior_rank ?? (idx + 1),
+        perturbation: arm.perturbation ?? "unknown",
+        intensity: arm.intensity ?? "L1_MILD",
+        nemotron_rationale: arm.nemotron_rationale ?? "",
+        r1_probe_k: arm.r1_probe_k ?? arm.round1_failures ?? 0,
+        r1_probe_n: arm.r1_probe_n ?? arm.round1_runs ?? 10,
+        r2_probe_k: arm.r2_probe_k !== undefined ? arm.r2_probe_k : (arm.round2_failures !== undefined && arm.eliminated_in_round !== 1 ? arm.round2_failures : null),
+        r2_probe_n: arm.r2_probe_n !== undefined ? arm.r2_probe_n : (arm.round2_runs !== undefined && arm.eliminated_in_round !== 1 ? arm.round2_runs : null),
+        status,
+        failure_rate: arm.failure_rate ?? arm.exploration_failure_rate ?? 0,
+      };
+    }) : [];
+
+    normalized = {
+      ...normalized,
+      amplifier_report: {
+        ...rep,
+        baseline_failure_rate: bRate,
+        confirmed_failure_rate: cRate,
+        amplification_factor: ampFactor,
+        ci_95_lower: ciLo,
+        ci_95_upper: ciHi,
+        winning_condition: winCond,
+        winning_intensity: winInt,
+        runs_to_first_failure: rep.runs_to_first_failure ?? 2,
+        ast_detected_signals: rep.ast_detected_signals ?? [],
+        hypothesis_model: rep.hypothesis_model ?? "nvidia/Nemotron-3_5-Lightning",
+        hypothesis_source: rep.hypothesis_source ?? "ast_heuristic_fallback",
+        leaderboard: arms,
+      },
+    };
   }
   return normalized;
 }

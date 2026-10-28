@@ -42,6 +42,14 @@ class TestHealthEndpoint:
         assert data["status"] == "ok"
         assert data["service"] == "coinflip-agent-ui"
 
+    def test_health_returns_nebius_and_traces_loaded(self):
+        response = client.get("/api/health")
+        assert response.status_code == 200
+        data = response.json()
+        assert "nebius_configured" in data
+        assert isinstance(data["nebius_configured"], bool)
+        assert data["traces_loaded"] == 5
+
 
 # -------------------------------------------------------------------------------
 # 2. /api/trace and /api/traces/hero
@@ -522,5 +530,25 @@ class TestBuiltinProfilesDynamic:
             assert "baseline_runs" in prof
             assert "stress_failures" in prof
             assert prof["baseline_runs"] > 0
+
+
+class TestRateLimiter:
+    def test_rate_limiter_blocks_after_max_runs(self):
+        import time
+        from agent_and_ui.app import RATE_LIMIT_MAX_RUNS, _LIVE_RUN_HISTORY
+
+        test_ip = "203.0.113.55"
+        now = time.time()
+        _LIVE_RUN_HISTORY[test_ip] = [now - (i + 1) for i in range(RATE_LIMIT_MAX_RUNS)]
+
+        headers = {"x-forwarded-for": test_ip}
+        res = client.post("/api/run-live", json={"case_id": "hero"}, headers=headers)
+        assert res.status_code == 429
+        assert "Rate limit exceeded" in res.json()["detail"]
+
+        stream_res = client.get("/api/stream-live?case_id=hero", headers=headers)
+        assert stream_res.status_code == 429
+        assert "Rate limit exceeded" in stream_res.json()["detail"]
+
 
 

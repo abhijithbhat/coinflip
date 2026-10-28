@@ -1,0 +1,12 @@
+.git
+.venv
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache
+.ruff_cache
+.DS_Store
+agent_and_ui/frontend/node_modules
+agent_and_ui/frontend/.output
+

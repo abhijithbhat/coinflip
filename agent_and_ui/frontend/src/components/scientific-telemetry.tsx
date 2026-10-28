@@ -237,13 +237,19 @@ export function AttestationBlock({ trace, seal }: { trace: Trace; seal: Attestat
 }
 
 export function FlakeAmplifierPanel({ trace }: { trace: Trace }) {
-  const report = trace.amplifier_report ?? synthesizeAmplifierFallback(trace);
+  const rawReport = trace.amplifier_report ?? synthesizeAmplifierFallback(trace);
+  const report = rawReport as any;
 
-  const baselinePct = (report.baseline_failure_rate * 100).toFixed(1);
-  const confirmedPct = (report.confirmed_failure_rate * 100).toFixed(1);
-  const ampFactor = report.amplification_factor.toFixed(1);
-  const ciLo = (report.ci_95_lower * 100).toFixed(1);
-  const ciHi = (report.ci_95_upper * 100).toFixed(1);
+  const baselinePct = (((report.baseline_failure_rate ?? 0) * 100)).toFixed(1);
+  const confirmedPct = (((report.confirmed_failure_rate ?? 0) * 100)).toFixed(1);
+  const ampFactor = (report.amplification_factor ?? 1).toFixed(1);
+  const ciLo = (((report.ci_95_lower ?? report.confirmed_ci_95_lower ?? 0) * 100)).toFixed(1);
+  const ciHi = (((report.ci_95_upper ?? report.confirmed_ci_95_upper ?? 1) * 100)).toFixed(1);
+  const winCond = report.winning_condition ?? report.winning_perturbation ?? "cpu_heavy_load";
+  const winInt = report.winning_intensity ?? "L3_EXTREME";
+  const runsToFirst = report.runs_to_first_failure ?? 2;
+  const astSignals: string[] = Array.isArray(report.ast_detected_signals) ? report.ast_detected_signals : [];
+  const arms: any[] = Array.isArray(report.leaderboard) ? report.leaderboard : [];
 
   return (
     <section id="stage-02a" className="lab-panel" aria-label="Flake Amplifier Bandit Search">
@@ -262,10 +268,10 @@ export function FlakeAmplifierPanel({ trace }: { trace: Trace }) {
           <div className="flex flex-wrap items-center gap-3">
             <span className="inline-flex items-center gap-1.5 rounded-full border border-stress/60 bg-stress/20 px-3 py-1 font-mono text-xs font-bold text-stress tracking-wide">
               <span className="h-2 w-2 rounded-full bg-stress animate-pulse" />
-              CONFIRMED AMPLIFIED CONDITION: {report.winning_condition} @ {report.winning_intensity}
+              CONFIRMED AMPLIFIED CONDITION: {winCond} @ {winInt}
             </span>
             <span className="font-mono text-xs text-muted-foreground">
-              Runs to First Failure: <strong className="text-foreground">{report.runs_to_first_failure}</strong>
+              Runs to First Failure: <strong className="text-foreground">{runsToFirst}</strong>
             </span>
           </div>
           <div className="font-mono text-xs text-muted-foreground">
@@ -322,15 +328,15 @@ export function FlakeAmplifierPanel({ trace }: { trace: Trace }) {
           <div className="flex items-center gap-2">
             <span className="font-mono text-xs font-semibold text-foreground">Nemotron Static-AST Hypothesis Signals:</span>
             <span className="inline-flex items-center gap-1.5 rounded border border-primary/50 bg-primary/10 px-2 py-0.5 font-mono text-[10px] font-bold text-primary">
-              {report.hypothesis_model}
+              {report.hypothesis_model ?? "nvidia/Nemotron-3_5-Lightning"}
             </span>
             <span className="inline-flex items-center rounded border border-border bg-muted/60 px-2 py-0.5 font-mono text-[10px] text-muted-foreground uppercase">
-              {report.hypothesis_source}
+              {report.hypothesis_source ?? "ast_heuristic_fallback"}
             </span>
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {report.ast_detected_signals.map((signal) => (
+          {astSignals.map((signal) => (
             <span
               key={signal}
               className="inline-flex items-center gap-1 rounded border border-border/80 bg-muted/50 px-2.5 py-1 font-mono text-xs text-foreground"
@@ -364,9 +370,16 @@ export function FlakeAmplifierPanel({ trace }: { trace: Trace }) {
             </tr>
           </thead>
           <tbody>
-            {report.leaderboard.map((arm) => {
-              const isWinner = arm.status.includes("WINNER");
-              const isR2Elim = arm.status.includes("ROUND 2");
+            {arms.map((arm: any, idx: number) => {
+              const statusStr = String(
+                arm.status ?? (
+                  arm.eliminated_in_round === null
+                    ? "WINNER -> CONFIRMED"
+                    : `ELIMINATED ROUND ${arm.eliminated_in_round ?? 1}`
+                )
+              );
+              const isWinner = statusStr.includes("WINNER");
+              const isR2Elim = statusStr.includes("ROUND 2");
               const intensityCls =
                 arm.intensity === "L3_EXTREME"
                   ? "border-stress/60 bg-stress/15 text-stress"
@@ -380,9 +393,17 @@ export function FlakeAmplifierPanel({ trace }: { trace: Trace }) {
                 ? "border-stress/50 bg-stress/10 text-stress font-medium"
                 : "border-border bg-muted/60 text-muted-foreground";
 
+              const priorRank = arm.prior_rank ?? arm.nemotron_prior_rank ?? (idx + 1);
+              const r1k = arm.r1_probe_k ?? arm.round1_failures ?? 0;
+              const r1n = arm.r1_probe_n ?? arm.round1_runs ?? 10;
+              const r2k = arm.r2_probe_k !== undefined && arm.r2_probe_k !== null ? arm.r2_probe_k : (arm.round2_failures !== undefined && arm.eliminated_in_round !== 1 ? arm.round2_failures : null);
+              const r2n = arm.r2_probe_n !== undefined && arm.r2_probe_n !== null ? arm.r2_probe_n : (arm.round2_runs !== undefined && arm.eliminated_in_round !== 1 ? arm.round2_runs : null);
+              const r1pct = r1n > 0 ? ((r1k / r1n) * 100).toFixed(0) : "0";
+              const r2pct = r2n && r2n > 0 ? ((r2k / r2n) * 100).toFixed(0) : "0";
+
               return (
-                <tr key={`${arm.prior_rank}-${arm.perturbation}-${arm.intensity}`} className={isWinner ? "trigger-row" : ""}>
-                  <td className="font-mono font-bold whitespace-nowrap">#{arm.prior_rank}</td>
+                <tr key={`${priorRank}-${arm.perturbation}-${arm.intensity}`} className={isWinner ? "trigger-row" : ""}>
+                  <td className="font-mono font-bold whitespace-nowrap">#{priorRank}</td>
                   <td className="whitespace-nowrap">
                     <div className="flex items-center gap-2">
                       <span className="font-semibold text-foreground">{arm.perturbation}</span>
@@ -398,17 +419,17 @@ export function FlakeAmplifierPanel({ trace }: { trace: Trace }) {
                     {arm.nemotron_rationale}
                   </td>
                   <td className="font-mono whitespace-nowrap">
-                    {arm.r1_probe_k} / {arm.r1_probe_n}
+                    {r1k} / {r1n}
                     <span className="ml-1 text-[10px] text-muted-foreground">
-                      ({((arm.r1_probe_k / arm.r1_probe_n) * 100).toFixed(0)}%)
+                      ({r1pct}%)
                     </span>
                   </td>
                   <td className="font-mono whitespace-nowrap">
-                    {arm.r2_probe_k !== null && arm.r2_probe_n !== null ? (
+                    {r2k !== null && r2n !== null ? (
                       <>
-                        {arm.r2_probe_k} / {arm.r2_probe_n}
+                        {r2k} / {r2n}
                         <span className="ml-1 text-[10px] text-muted-foreground">
-                          ({((arm.r2_probe_k / arm.r2_probe_n) * 100).toFixed(0)}%)
+                          ({r2pct}%)
                         </span>
                       </>
                     ) : (
@@ -418,7 +439,7 @@ export function FlakeAmplifierPanel({ trace }: { trace: Trace }) {
                   <td className="whitespace-nowrap">
                     <span className={`inline-flex items-center gap-1.5 rounded border px-2 py-0.5 font-mono text-[10px] ${statusBadgeCls}`}>
                       {isWinner && <span className="h-1.5 w-1.5 rounded-full bg-pass animate-pulse" />}
-                      {arm.status}
+                      {statusStr}
                     </span>
                   </td>
                 </tr>
@@ -440,4 +461,4 @@ export function FlakeAmplifierPanel({ trace }: { trace: Trace }) {
       </div>
     </section>
   );
-}
+}

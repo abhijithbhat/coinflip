@@ -740,6 +740,37 @@ def enrich_trace_with_advanced_analytics(trace_dict: dict) -> dict:
     # ---- Flake Amplifier Report (Stage 2A Adaptive Bandit & Out-of-Sample Confirmation) ----
     if trace_dict.get("amplifier_report") is None:
         trace_dict["amplifier_report"] = synthesize_flake_amplifier_report(trace_dict)
+    else:
+        amp = trace_dict["amplifier_report"]
+        if isinstance(amp, dict):
+            if "ci_95_lower" not in amp and "confirmed_ci_95_lower" in amp:
+                amp["ci_95_lower"] = amp["confirmed_ci_95_lower"]
+            if "ci_95_upper" not in amp and "confirmed_ci_95_upper" in amp:
+                amp["ci_95_upper"] = amp["confirmed_ci_95_upper"]
+            if "winning_condition" not in amp and "winning_perturbation" in amp:
+                amp["winning_condition"] = amp["winning_perturbation"]
+            if isinstance(amp.get("leaderboard"), list):
+                for idx, arm in enumerate(amp["leaderboard"]):
+                    if isinstance(arm, dict):
+                        if "prior_rank" not in arm and "nemotron_prior_rank" in arm:
+                            arm["prior_rank"] = arm["nemotron_prior_rank"]
+                        if "r1_probe_k" not in arm and "round1_failures" in arm:
+                            arm["r1_probe_k"] = arm["round1_failures"]
+                        if "r1_probe_n" not in arm and "round1_runs" in arm:
+                            arm["r1_probe_n"] = arm["round1_runs"]
+                        if "r2_probe_k" not in arm and "round2_failures" in arm:
+                            arm["r2_probe_k"] = arm["round2_failures"] if arm.get("eliminated_in_round") != 1 else None
+                        if "r2_probe_n" not in arm and "round2_runs" in arm:
+                            arm["r2_probe_n"] = arm["round2_runs"] if arm.get("eliminated_in_round") != 1 else None
+                        if "status" not in arm:
+                            is_win = arm.get("eliminated_in_round") is None and (
+                                arm.get("arm_id") == amp.get("winning_arm_id") or
+                                arm.get("perturbation") == amp.get("winning_perturbation")
+                            )
+                            arm["status"] = (
+                                "WINNER -> CONFIRMED" if is_win
+                                else f"ELIMINATED ROUND {arm.get('eliminated_in_round', 1)}"
+                            )
 
     # ---- Causal Analytics on stage2_ledger with Holm-Bonferroni ----
     stage1 = trace_dict.get("stage1_baseline", {})

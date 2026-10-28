@@ -9,3 +9,5 @@ node_modules/
 skills-lock.json
 .lovable/
 .wrangler/
+.cache/
+
