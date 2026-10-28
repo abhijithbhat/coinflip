@@ -27,7 +27,7 @@ from typing import Any, AsyncGenerator, Optional
 
 from fastapi import Body, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -756,6 +756,29 @@ def verify_attestation(
         "trace_sha256": trace_payload_sha256,
         "reason": ver_res.get("reason", "Cryptographic attestation verified successfully."),
     }
+
+
+# ---------------------------------------------------------------------------
+# Favicon Endpoints with Aggressive Cache Invalidation
+# ---------------------------------------------------------------------------
+@app.get("/favicon.ico")
+def get_favicon_ico() -> FileResponse:
+    ico_path = FRONTEND_DIR / "favicon.ico"
+    return FileResponse(
+        ico_path,
+        media_type="image/x-icon",
+        headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0"},
+    )
+
+
+@app.get("/favicon.svg")
+def get_favicon_svg() -> FileResponse:
+    svg_path = FRONTEND_DIR / "favicon.svg"
+    return FileResponse(
+        svg_path,
+        media_type="image/svg+xml",
+        headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0"},
+    )
 
 
 # ---------------------------------------------------------------------------

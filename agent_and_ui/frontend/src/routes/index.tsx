@@ -12,9 +12,9 @@ import { FALLBACK_TRACE, fetchTrace, fetchCaseTrace, fallbackForCase, makeDots, 
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "COINFLIP — Flaky-Test Investigator & Verifier" },
+      { title: "Coinflip — Statistical Flaky-Test Investigator & Amplifier" },
       { name: "description", content: "Statistical flaky-test investigation and fix certification dashboard powered by NVIDIA Nemotron on Nebius." },
-      { property: "og:title", content: "COINFLIP — Flaky-Test Investigator & Verifier" },
+      { property: "og:title", content: "Coinflip — Statistical Flaky-Test Investigator & Amplifier" },
       { property: "og:description", content: "Coin-toss dot matrices, Wilson CI ledgers and a certified fix — proof, not a single green run." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },

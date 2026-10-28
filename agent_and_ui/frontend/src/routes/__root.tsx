@@ -74,6 +74,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
+      { title: "Coinflip — Statistical Flaky-Test Investigator & Amplifier" },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
       { name: "twitter:site", content: "@CoinflipLab" },
@@ -85,7 +86,9 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       },
       { rel: "preconnect", href: "https://fonts.googleapis.com" },
       { rel: "stylesheet", href: "https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" },
-      { rel: "icon", href: "/favicon.ico", type: "image/x-icon" },
+      { rel: "icon", href: "/favicon.svg?v=coinflip2026", type: "image/svg+xml" },
+      { rel: "shortcut icon", href: "/favicon.ico?v=coinflip2026", type: "image/x-icon" },
+      { rel: "alternate icon", href: "/favicon.ico?v=coinflip2026", type: "image/x-icon" },
     ],
   }),
   shellComponent: RootShell,
