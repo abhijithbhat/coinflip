@@ -3,6 +3,7 @@
 > **Hackathon**: Nebius & NVIDIA Nemotron AI Hackathon 2026  
 > **Target Tracks**: Best Use of NVIDIA Nemotron Models on Nebius | Autonomous Coding Agents | Best Platform Feedback ($100 Prize)  
 > **Authors**: Raghavendra (Product Operations Lead), Abhijith M Bhat (Lead Systems Architect), Tejas (AI Agent & Biostatistics Lead), Dhul Kifl (Benchmark Corpus Engineer)  
+> **Live Demo URL**: [https://coinflip-nvidia.onrender.com](https://coinflip-nvidia.onrender.com)  
 > **GitHub Repository**: [https://github.com/abhijithbhat/coinflip](https://github.com/abhijithbhat/coinflip)  
 > **Video Demo**: [YouTube Link - 2m45s Architectural Walkthrough](https://youtu.be/coinflip-demo-2026)
 
