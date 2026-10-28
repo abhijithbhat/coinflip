@@ -2,7 +2,7 @@
 
 > **Hackathon**: Nebius & NVIDIA Nemotron AI Hackathon 2026  
 > **Target Tracks**: Best Use of NVIDIA Nemotron Models on Nebius | Autonomous Coding Agents | Best Platform Feedback ($100 Prize)  
-> **Authors**: Raghavendra (Product Operations Lead), Abhijith M Bhat (Lead Systems Architect), Tejas (AI Agent & Biostatistics Lead), Mohammed Nisaruddin (Benchmark Engineer)  
+> **Authors**: Raghavendra (Product Operations Lead), Abhijith M Bhat (Lead Systems Architect), Tejas (AI Agent & Biostatistics Lead), Dhul Kifl (Benchmark Corpus Engineer)  
 > **GitHub Repository**: [https://github.com/abhijithbhat/coinflip](https://github.com/abhijithbhat/coinflip)  
 > **Video Demo**: [YouTube Link - 2m45s Architectural Walkthrough](https://youtu.be/coinflip-demo-2026)
 
@@ -130,5 +130,5 @@ Fixed stress (like academic tool Shaker) only applies CPU/memory load, completel
 
 - **Abhijith M Bhat** (Lead Systems & Sandbox Engine Architect): Built the perturbation harness, Merkle attestation tree, HMAC verification, and Wald SPRT engine.
 - **Tejas** (AI Agent, Biostatistics & Frontend Lead): Integrated Nebius Token Factory with Nemotron models, authored exact statistical engines, and designed the TanStack dashboard.
-- **Mohammed Nisaruddin / Dulkif** (Benchmark Corpus Engineer): Curated 20 real-world flaky test archetypes and validated the AST anti-cheat gatekeeper.
+- **Dhul Kifl** (Benchmark Corpus Engineer): Curated 20 real-world flaky test archetypes and validated the AST anti-cheat gatekeeper.
 - **Raghavendra** (Product Operations, Platform Feedback, Devpost & Video Producer): Authored the comprehensive Nebius platform feedback report, managed project operations, and scripted the demonstration video.

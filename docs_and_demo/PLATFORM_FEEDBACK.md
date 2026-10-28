@@ -135,5 +135,5 @@ To deliver a responsive interactive user experience (< 5 second live runs), Coin
 
 ---
 
-*Report submitted by the Coinflip Architecture Team (Abhijith M Bhat, Tejas, Mohammed Nisaruddin, Raghavendra) in appreciation of the Nebius engineering team's excellent developer platform.*
+*Report submitted by the Coinflip Architecture Team (Abhijith M Bhat, Tejas, Dhul Kifl, Raghavendra) in appreciation of the Nebius engineering team's excellent developer platform.*
 
