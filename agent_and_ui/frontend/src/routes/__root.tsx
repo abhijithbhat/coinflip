@@ -86,8 +86,12 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       },
       { rel: "preconnect", href: "https://fonts.googleapis.com" },
       { rel: "stylesheet", href: "https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" },
-      { rel: "icon", href: "/favicon.svg?v=coinflip2026", type: "image/svg+xml" },
-      { rel: "shortcut icon", href: "/favicon.ico?v=coinflip2026", type: "image/x-icon" },
+      {
+        rel: "icon",
+        href: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64' fill='none'%3E%3Crect width='64' height='64' rx='14' fill='%230f172a'/%3E%3Ccircle cx='32' cy='32' r='23' fill='none' stroke='%2310b981' stroke-width='2.5' stroke-dasharray='3 2.5'/%3E%3Cpath d='M 32 13 A 19 19 0 0 1 51 32' fill='none' stroke='%2334d399' stroke-width='3.5' stroke-linecap='round'/%3E%3Ctext x='32' y='38' text-anchor='middle' fill='%23f8fafc' font-family='system-ui, -apple-system, sans-serif' font-size='18' font-weight='800' letter-spacing='-1'%3ECF%3C/text%3E%3Ccircle cx='45' cy='19' r='3' fill='%2334d399'/%3E%3C/svg%3E",
+        type: "image/svg+xml",
+      },
+      { rel: "shortcut icon", href: "/favicon.svg?v=coinflip2026", type: "image/svg+xml" },
       { rel: "alternate icon", href: "/favicon.ico?v=coinflip2026", type: "image/x-icon" },
     ],
   }),
@@ -113,6 +117,18 @@ function RootShell({ children }: { children: ReactNode }) {
 
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
+
+  useEffect(() => {
+    // Force active browser tab to adopt the Coinflip Swiss-telemetry favicon mark
+    const svgData = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64' fill='none'%3E%3Crect width='64' height='64' rx='14' fill='%230f172a'/%3E%3Ccircle cx='32' cy='32' r='23' fill='none' stroke='%2310b981' stroke-width='2.5' stroke-dasharray='3 2.5'/%3E%3Cpath d='M 32 13 A 19 19 0 0 1 51 32' fill='none' stroke='%2334d399' stroke-width='3.5' stroke-linecap='round'/%3E%3Ctext x='32' y='38' text-anchor='middle' fill='%23f8fafc' font-family='system-ui, -apple-system, sans-serif' font-size='18' font-weight='800' letter-spacing='-1'%3ECF%3C/text%3E%3Ccircle cx='45' cy='19' r='3' fill='%2334d399'/%3E%3C/svg%3E";
+    const existing = document.querySelectorAll("link[rel*='icon']");
+    existing.forEach((el) => el.remove());
+    const link = document.createElement("link");
+    link.rel = "icon";
+    link.type = "image/svg+xml";
+    link.href = svgData;
+    document.head.appendChild(link);
+  }, []);
 
   return (
     <QueryClientProvider client={queryClient}>

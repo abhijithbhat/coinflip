@@ -781,6 +781,18 @@ def get_favicon_svg() -> FileResponse:
     )
 
 
+@app.get("/apple-touch-icon.png")
+@app.get("/apple-touch-icon-precomposed.png")
+@app.get("/favicon.png")
+def get_apple_touch_icon() -> FileResponse:
+    ico_path = FRONTEND_DIR / "favicon.ico"
+    return FileResponse(
+        ico_path,
+        media_type="image/x-icon",
+        headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0"},
+    )
+
+
 # ---------------------------------------------------------------------------
 # Resolve static frontend mount directory
 # ---------------------------------------------------------------------------
