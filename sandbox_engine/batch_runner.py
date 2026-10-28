@@ -254,8 +254,34 @@ class SandboxBatchRunner:
         intensity: PerturbationIntensity | str | None = None,
     ) -> list[SingleRunResult]:
         """Runs the batch using isolated local temporary directories and high-speed worker pools."""
-        temp_dir = Path(tempfile.mkdtemp(prefix="coinflip_batch_"))
         resolved_intensity = resolve_default_intensity(perturbation, intensity)
+        is_fast_live = os.environ.get("COINFLIP_FAST_LIVE_MODE") == "1" or os.environ.get("COINFLIP_FAST_MODE") == "1"
+
+        # In fast live mode, execute zero-copy in-process against the snapshot directly
+        if is_fast_live:
+            from sandbox_engine._worker_pool import run_inprocess_worker_pool
+
+            orig_salt = os.environ.get("COINFLIP_SESSION_SALT")
+            if self.session_salt > 0:
+                os.environ["COINFLIP_SESSION_SALT"] = str(self.session_salt)
+            try:
+                return await asyncio.to_thread(
+                    run_inprocess_worker_pool,
+                    temp_dir=self.repo_dir,
+                    test_target=self.test_target,
+                    perturbation=perturbation,
+                    run_ids=list(range(num_runs)),
+                    base_seed=1000,
+                    intensity=resolved_intensity,
+                    session_salt=self.session_salt,
+                )
+            finally:
+                if orig_salt is None:
+                    os.environ.pop("COINFLIP_SESSION_SALT", None)
+                else:
+                    os.environ["COINFLIP_SESSION_SALT"] = orig_salt
+
+        temp_dir = Path(tempfile.mkdtemp(prefix="coinflip_batch_"))
         try:
             # Copy repository contents into isolated workspace
             if self.repo_dir.exists():

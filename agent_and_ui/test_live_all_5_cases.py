@@ -32,7 +32,7 @@ CASE_EXPECTED_TRIGGERS = {
     list(CASE_EXPECTED_TRIGGERS.items()),
 )
 def test_live_execution_all_5_cases(case_id: str, expected_trigger: str):
-    """Asserts all 5 benchmark cases execute live in < 8.0s with correct winning condition."""
+    """Asserts all 5 benchmark cases execute live in < 4.0s with correct winning condition."""
     start_time = time.perf_counter()
     response = client.post(
         "/api/run-live",
@@ -41,7 +41,7 @@ def test_live_execution_all_5_cases(case_id: str, expected_trigger: str):
     duration = time.perf_counter() - start_time
 
     assert response.status_code == 200, f"Failed for {case_id}: {response.text}"
-    assert duration < 8.0, f"Case {case_id} took {duration:.2f}s, exceeding 8.0s budget"
+    assert duration < 4.0, f"Case {case_id} took {duration:.2f}s, exceeding 4.0s budget"
 
     data = response.json()
     assert data["trace_origin"] == "live_execution"

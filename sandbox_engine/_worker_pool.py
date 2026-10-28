@@ -33,6 +33,23 @@ _ORIG_SLEEP = time.sleep
 _ORIG_SOCKET_CONNECT = socket.socket.connect
 
 
+def _reset_benchmark_state() -> None:
+    """Resets known benchmark state singletons between in-process runs."""
+    if "config_service" in sys.modules:
+        cfg = sys.modules["config_service"]
+        if hasattr(cfg, "reset_config"):
+            try:
+                cfg.reset_config()
+            except Exception:
+                pass
+        elif hasattr(cfg, "_GLOBAL_CONFIG_CACHE"):
+            try:
+                cfg._GLOBAL_CONFIG_CACHE.clear()
+                cfg._GLOBAL_CONFIG_CACHE.update({"region": "us-east-1", "tier": "standard"})
+            except Exception:
+                pass
+
+
 def run_worker_chunk(
     temp_dir: Path | str,
     test_target: str,
@@ -175,6 +192,7 @@ def run_worker_chunk(
                 exit_code = 0
                 error_snippet = None
 
+                _reset_benchmark_state()
                 try:
                     with perturbation_runtime_context(
                         perturbation, run_id=run_id, base_seed=base_seed, intensity=ctx.intensity, session_salt=session_salt

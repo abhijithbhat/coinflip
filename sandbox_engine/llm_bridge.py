@@ -154,8 +154,8 @@ class NemotronBridge:
             f"{joined_logs}"
         )
 
-        tokens = 300 if fast_live_mode else 350
-        timeout = 4.5 if fast_live_mode else 12.0
+        tokens = 80 if fast_live_mode else 350
+        timeout = 2.5 if fast_live_mode else 12.0
         try:
             res = self._call_model(
                 model=MODEL_FAST,
@@ -290,9 +290,9 @@ class NemotronBridge:
             "3. Output the complete replacement test file inside a ```python ... ``` block.\n"
         )
 
-        model_target = "nvidia/nemotron-3-super-120b-a12b" if fast_live_mode else MODEL_REASONING
-        tokens = 300 if fast_live_mode else 4096
-        timeout = 4.5 if fast_live_mode else 60.0
+        model_target = MODEL_FAST if fast_live_mode else MODEL_REASONING
+        tokens = 80 if fast_live_mode else 4096
+        timeout = 2.5 if fast_live_mode else 60.0
         try:
             response = self._call_model(
                 model=model_target,

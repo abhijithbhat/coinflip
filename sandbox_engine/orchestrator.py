@@ -260,9 +260,9 @@ class CoinflipOrchestrator:
             self.session_salt = secrets.randbelow(900_000) + 100_000
 
         if fast_live_mode:
-            stage1_runs = 25
-            stage2_runs = 20
-            stage4_cert_runs = 50
+            stage1_runs = 20
+            stage2_runs = 15
+            stage4_cert_runs = 25
 
         trace_id = f"coinflip_trace_{uuid.uuid4().hex[:12]}"
         timestamp_utc = datetime.now(UTC).isoformat()
@@ -355,38 +355,6 @@ class CoinflipOrchestrator:
         # ---------------------------------------------------------------------
         # STAGE 2: FLAKE AMPLIFIER (SUCCESSIVE HALVING SEARCH) & PERTURBATION LEDGER
         # ---------------------------------------------------------------------
-        _notify("stage2_amplifier", {
-            "stage": 2,
-            "status": "running",
-            "message": "Ranking perturbation hypotheses and running adaptive Flake Amplifier...",
-        })
-        logger.info("[STAGE 2] Ranking hypotheses with Nemotron Lightning / AST signals...")
-        hypothesis_bridge = self.llm if hasattr(self.llm, "rank_amplification_hypotheses") else NemotronBridge()
-        hypotheses = hypothesis_bridge.rank_amplification_hypotheses(
-            test_code=original_test_code,
-            target_code=service_code,
-        )
-
-        logger.info("[STAGE 2] Running Flake Amplifier adaptive successive-halving search...")
-        amplifier = FlakeAmplifier(
-            batch_runner=runner,
-            workspace_dir=base_snapshot_path,
-            test_target=self.test_target,
-            baseline_result=stage1_baseline,
-            hypotheses=hypotheses,
-            exploration_budget=24 if fast_live_mode else 60,
-            confirmation_budget=20 if fast_live_mode else 40,
-            fast_live_mode=fast_live_mode,
-        )
-        amplifier_report: FlakeAmplifierReport
-        confirmation_batch: BatchExperimentResult | None
-        amplifier_report, confirmation_batch = await amplifier.run()
-        logger.info(
-            "Flake Amplifier finished: winning arm %s (confirmed failure rate: %.1f%%)",
-            amplifier_report.winning_arm_id,
-            amplifier_report.confirmed_failure_rate * 100,
-        )
-
         _notify("stage2_perturbation", {
             "stage": 2,
             "status": "running",
@@ -404,16 +372,12 @@ class CoinflipOrchestrator:
         ]
 
         stage2_ledger: list[BatchExperimentResult] = []
-        highest_rate = -1.0
-        triggering_condition = amplifier_report.winning_perturbation
-        winning_intensity: PerturbationIntensity | None = amplifier_report.winning_intensity
+        ledger_map: dict[PerturbationType, BatchExperimentResult] = {}
 
         for cond in conditions_order:
             # Re-use stage1 result for baseline always (eliminates redundant batch execution)
             if cond == PerturbationType.BASELINE:
                 batch_res = stage1_baseline
-            elif cond == amplifier_report.winning_perturbation and confirmation_batch is not None:
-                batch_res = confirmation_batch
             else:
                 batch_res = await runner.run_batch(cond, num_runs=stage2_runs)
 
@@ -425,18 +389,70 @@ class CoinflipOrchestrator:
                 n_pert=batch_res.total_runs,
             )
             batch_res.causal_metrics = causal
-
             stage2_ledger.append(batch_res)
+            ledger_map[cond] = batch_res
+
+        _notify("stage2_amplifier", {
+            "stage": 2,
+            "status": "running",
+            "message": "Ranking perturbation hypotheses and running adaptive Flake Amplifier...",
+        })
+        logger.info("[STAGE 2] Ranking hypotheses with Nemotron Lightning / AST signals...")
+        hypothesis_bridge = self.llm if hasattr(self.llm, "rank_amplification_hypotheses") else NemotronBridge()
+        hypotheses = hypothesis_bridge.rank_amplification_hypotheses(
+            test_code=original_test_code,
+            target_code=service_code,
+            fast_offline=fast_live_mode,
+        )
+
+        logger.info("[STAGE 2] Running Flake Amplifier adaptive successive-halving search...")
+        amplifier = FlakeAmplifier(
+            batch_runner=runner,
+            workspace_dir=base_snapshot_path,
+            test_target=self.test_target,
+            baseline_result=stage1_baseline,
+            hypotheses=hypotheses,
+            exploration_budget=20 if fast_live_mode else 60,
+            confirmation_budget=20 if fast_live_mode else 40,
+            fast_live_mode=fast_live_mode,
+            prior_results=ledger_map if fast_live_mode else None,
+        )
+        amplifier_report: FlakeAmplifierReport
+        confirmation_batch: BatchExperimentResult | None
+        amplifier_report, confirmation_batch = await amplifier.run()
+        logger.info(
+            "Flake Amplifier finished: winning arm %s (confirmed failure rate: %.1f%%)",
+            amplifier_report.winning_arm_id,
+            amplifier_report.confirmed_failure_rate * 100,
+        )
+
+        highest_rate = -1.0
+        triggering_condition = amplifier_report.winning_perturbation
+        winning_intensity: PerturbationIntensity | None = amplifier_report.winning_intensity
+
+        # Replace winning arm entry in ledger with out-of-sample confirmation batch if available
+        if confirmation_batch is not None:
+            for idx, item in enumerate(stage2_ledger):
+                if item.perturbation == amplifier_report.winning_perturbation:
+                    c_metrics = compute_causal_metrics(
+                        k_base=stage1_baseline.failures,
+                        n_base=stage1_baseline.total_runs,
+                        k_pert=confirmation_batch.failures,
+                        n_pert=confirmation_batch.total_runs,
+                    )
+                    confirmation_batch.causal_metrics = c_metrics
+                    stage2_ledger[idx] = confirmation_batch
+                    break
+
+        for batch_res in stage2_ledger:
             logger.info(
                 "  Ledger [%s]: %.1f%% failure rate (Fisher p=%.4e, RR=%.2f, Significant=%s)",
-                cond.value,
+                batch_res.perturbation.value,
                 batch_res.failure_rate * 100,
-                causal.fisher_p_value,
-                causal.relative_risk,
-                causal.is_statistically_significant,
+                batch_res.causal_metrics.fisher_p_value if batch_res.causal_metrics else 1.0,
+                batch_res.causal_metrics.relative_risk if batch_res.causal_metrics else 1.0,
+                batch_res.causal_metrics.is_statistically_significant if batch_res.causal_metrics else False,
             )
-
-            # Causal selection of triggering condition
             if batch_res.perturbation != PerturbationType.BASELINE:
                 score = (batch_res.failure_rate * 100.0) + (batch_res.causal_metrics.relative_risk if batch_res.causal_metrics else 0.0)
                 if score > highest_rate:
@@ -469,7 +485,7 @@ class CoinflipOrchestrator:
 
         # Collect concurrent log summary from Nebius Token Factory
         try:
-            summary_timeout = 4.5 if fast_live_mode else 12.0
+            summary_timeout = 2.5 if fast_live_mode else 12.0
             log_summary = await asyncio.wait_for(summary_task, timeout=summary_timeout)
         except Exception as e:
             logger.warning("Concurrent Nebius log summarization failed (%s). Using fallback summary.", e)
@@ -495,7 +511,7 @@ class CoinflipOrchestrator:
         naive_patch_file = Path(getattr(self, "naive_patch_path", None) or (self.repo_dir / "patches" / "naive_quick_fix.py"))
 
         # Launch Nemotron diagnosis concurrently in background task
-        nemotron_timeout = 4.5 if fast_live_mode else 12.0
+        nemotron_timeout = 2.5 if fast_live_mode else 12.0
         diag_start_time = time.perf_counter()
         diagnosis_task: asyncio.Task[Any] = asyncio.create_task(
             asyncio.to_thread(

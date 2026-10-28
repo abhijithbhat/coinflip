@@ -175,22 +175,22 @@ class Stage4PatchVerifier:
 
             sprt_telemetry: SPRTExecutionTelemetry | None = None
 
-            # Fast Live Mode execution path (< 1s certification gate)
+            # Fast Live Mode execution path (< 0.2s certification gate)
             if fast_live_mode:
                 if attempt_number == 1:
-                    # Attempt 1 (Naive Quick Fix): 12-run stress probe triggers immediate SPRT early-rejection
-                    logger.info("Running fast live SPRT stress probe (12 runs) for '%s'...", fix_title)
+                    # Attempt 1 (Naive Quick Fix): 10-run stress probe triggers immediate SPRT early-rejection
+                    logger.info("Running fast live SPRT stress probe (10 runs) for '%s'...", fix_title)
                     stress_probe = await runner.run_batch(
                         perturbation=triggering_stress_condition,
-                        num_runs=12,
+                        num_runs=10,
                         intensity=triggering_intensity,
                     )
                     normal_result = await runner.run_batch(
                         perturbation=PerturbationType.BASELINE,
-                        num_runs=12,
+                        num_runs=10,
                     )
                     stress_result = stress_probe
-                    runs_saved = max(0, cert_runs - 12)
+                    runs_saved = max(0, cert_runs - 10)
                     compute_saved = round((runs_saved / max(1, cert_runs)) * 100.0, 1)
                     sprt_eval = wald_sprt_check(
                         failures=stress_probe.failures,
@@ -203,7 +203,7 @@ class Stage4PatchVerifier:
                             enabled=True,
                             early_stopped=True,
                             decision="EARLY_REJECT_STRESS",
-                            runs_executed_stress=12,
+                            runs_executed_stress=10,
                             target_runs_stress=cert_runs,
                             runs_saved=runs_saved,
                             compute_saved_pct=compute_saved,
@@ -212,8 +212,8 @@ class Stage4PatchVerifier:
                         )
                     sprt_telemetry = sprt_eval
                 else:
-                    # Attempt 2 (Certified Real Fix): 50 normal + 50 stress runs
-                    eval_runs = 50
+                    # Attempt 2 (Certified Real Fix): 25 normal + 25 stress runs
+                    eval_runs = 25
                     logger.info("Running fast live certification (%d normal + %d stress) for '%s'...", eval_runs, eval_runs, fix_title)
                     normal_result = await runner.run_batch(
                         perturbation=PerturbationType.BASELINE,

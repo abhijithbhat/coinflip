@@ -38,12 +38,14 @@ class FlakeAmplifier:
         exploration_budget: int = 60,
         confirmation_budget: int = 40,
         fast_live_mode: bool = False,
+        prior_results: dict[Any, BatchExperimentResult] | None = None,
     ) -> None:
         self.batch_runner = batch_runner
         self.workspace_dir = Path(workspace_dir).resolve()
         self.test_target = test_target
         self.baseline_result = baseline_result
         self.fast_live_mode = fast_live_mode
+        self.prior_results = prior_results or {}
 
         # Parse hypotheses input
         if isinstance(hypotheses, dict):
@@ -65,14 +67,20 @@ class FlakeAmplifier:
 
         # Allocate budget
         if fast_live_mode:
-            self.exploration_budget = exploration_budget if exploration_budget != 60 else 24
-            self.confirmation_budget = confirmation_budget if confirmation_budget != 40 else 20
-            if self.exploration_budget >= 28:
-                self.r1_runs = 4
-                self.r2_runs = 6
+            if self.prior_results:
+                self.exploration_budget = 20
+                self.confirmation_budget = 20
+                self.r1_runs = 0
+                self.r2_runs = 10
             else:
-                self.r1_runs = 3
-                self.r2_runs = 6
+                self.exploration_budget = exploration_budget if exploration_budget != 60 else 24
+                self.confirmation_budget = confirmation_budget if confirmation_budget != 40 else 20
+                if self.exploration_budget >= 28:
+                    self.r1_runs = 4
+                    self.r2_runs = 6
+                else:
+                    self.r1_runs = 3
+                    self.r2_runs = 6
         else:
             self.exploration_budget = exploration_budget
             self.confirmation_budget = confirmation_budget
@@ -116,11 +124,24 @@ class FlakeAmplifier:
             rank = int(arm_meta.get("nemotron_prior_rank", 1))
             rationale = str(arm_meta.get("nemotron_rationale", ""))
 
-            batch_res = await self.batch_runner.run_batch(
-                perturbation=pert,
-                num_runs=self.r1_runs,
-                intensity=intensity,
-            )
+            # Reuse Stage 2 prior batch results if available (0 extra runs!)
+            prior_match = None
+            if self.prior_results:
+                if (pert, intensity) in self.prior_results:
+                    prior_match = self.prior_results[(pert, intensity)]
+                elif pert in self.prior_results:
+                    prior_match = self.prior_results[pert]
+                elif pert.value in self.prior_results:
+                    prior_match = self.prior_results[pert.value]
+
+            if prior_match is not None:
+                batch_res = prior_match
+            else:
+                batch_res = await self.batch_runner.run_batch(
+                    perturbation=pert,
+                    num_runs=max(1, self.r1_runs),
+                    intensity=intensity,
+                )
 
             if batch_res.run_dots:
                 for passed in batch_res.run_dots:

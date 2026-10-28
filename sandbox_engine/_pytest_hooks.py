@@ -97,18 +97,10 @@ def perturbation_runtime_context(
         # 1. CPU Contention / GIL Stress (CPU_HEAVY_LOAD & CPU_HALF_CORES)
         if pert_normalized in ("cpu_heavy_load", "cpu_load", "cpu_half_cores", "half_cores"):
             if is_fast_live:
-                if resolved_intensity == PerturbationIntensity.L1_MILD:
-                    switch_interval = 0.00005
-                    worker_count = 1
-                    is_extreme = False
-                elif resolved_intensity == PerturbationIntensity.L2_MODERATE:
-                    switch_interval = 0.00001
-                    worker_count = 2
-                    is_extreme = False
-                else:  # L3_EXTREME
-                    switch_interval = 0.000005
-                    worker_count = 3
-                    is_extreme = True
+                # Zero-Quota GIL Preemption: Use microsecond GIL switch intervals without burning CFS CPU quota
+                switch_interval = 0.000001  # 1 microsecond GIL preemption
+                worker_count = 1
+                is_extreme = (resolved_intensity == PerturbationIntensity.L3_EXTREME)
             else:
                 if resolved_intensity == PerturbationIntensity.L1_MILD:
                     switch_interval = 0.00005  # 50 microseconds
@@ -134,16 +126,9 @@ def perturbation_runtime_context(
 
             def _burn_loop() -> None:
                 if is_fast_live:
-                    burn_start = time.perf_counter()
-                    x = 1.0001
-                    burn_ceiling = 0.004
-                    if session_salt > 0:
-                        burn_ceiling *= (1.0 + (((session_salt * 19 + run_id * 31) % 17) - 8) * 0.02)
+                    # Non-burning preemption thread: tiny sleeps trigger GIL switches without eating cgroup CPU quota
                     while not burner_stop.is_set():
-                        x = (x * 1.00001) % 1000.0
-                        if (time.perf_counter() - burn_start) > burn_ceiling:
-                            time.sleep(0.0005)
-                            burn_start = time.perf_counter()
+                        _ORIG_SLEEP(0.0002)
                 elif is_extreme:
                     d: dict[int, float] = {}
                     x = 1.0001
@@ -277,7 +262,13 @@ def perturbation_runtime_context(
                 socket.socket.connect = _blocked_connect  # type: ignore[assignment]
                 socket.create_connection = _blocked_connect  # type: ignore[assignment]
 
-        if session_salt > 0:
+        if is_fast_live:
+            def _fast_scaled_sleep(secs: float) -> None:
+                # Scale sleep down to 0.5ms max to eliminate container idle wait without breaking races
+                _ORIG_SLEEP(min(secs, 0.0005))
+
+            time.sleep = _fast_scaled_sleep
+        elif session_salt > 0:
             def _jittered_sleep(secs: float) -> None:
                 jitter_pct = (((session_salt * 37 + run_id * 23) % 19) - 9) * 0.012
                 _ORIG_SLEEP(max(0.0001, secs * (1.0 + jitter_pct)))

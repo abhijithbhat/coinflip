@@ -42,7 +42,7 @@
 ### Scene 2: Stage 1 & Stage 2A Flake Amplifier (0:30 – 1:00)
 
 **[VISUAL CUES]**
-- `0:30 – 0:38`: Cut to the Coinflip Web Dashboard (`https://coinflip-nvidia.onrender.com`). Clean, dark porcelain-signal interface. Case selector dropdown highlights **"Hero Worker CPU Race"**.
+- `0:30 – 0:38`: Cut to the Coinflip Web Dashboard (`https://coinflip-2bcw.onrender.com`). Clean, dark porcelain-signal interface. Case selector dropdown highlights **"Hero Worker CPU Race"**.
 - `0:38 – 0:45`: Baseline dot matrix displays 30 green circles. Telemetry card shows: `Failures: 0/30 (0.0%), Wilson 95% CI: [0.0%, 11.3%]`.
 - `0:45 – 1:00`: Cursor clicks **"Run Live"**. Real-time SSE streaming indicator pulses. An AST hypothesis card expands showing `nvidia/Nemotron-3_5-Lightning` on **Nebius Token Factory** evaluating AST tokens and ranking `cpu_heavy_load` #1. The bandit executes across 18 perturbation arms. Below, the dot matrix transforms into bright crimson red: 27 fails out of 30 runs (`Fail Rate: 90.0%`).
 
@@ -94,7 +94,7 @@
 - `2:25 – 2:35`: Camera cuts to a terminal window. The engineer types:  
   `python -m sandbox_engine.attestation --verify shared_contracts/recorded_traces/hero.json`.  
   Instant green output: **`[PASS] Merkle Root & HMAC Attestation Verified`**. Cursor copies the GitHub Markdown badge into a PR.
-- `2:35 – 2:45`: Final title slide appears with the emerald Coinflip coin logo, live cloud demo (`coinflip-nvidia.onrender.com`), repository link (`github.com/abhijithbhat/coinflip`), and hackathon credits for Nebius, NVIDIA Nemotron, and the engineering team.
+- `2:35 – 2:45`: Final title slide appears with the emerald Coinflip coin logo, live cloud demo (`coinflip-2bcw.onrender.com`), repository link (`github.com/abhijithbhat/coinflip`), and hackathon credits for Nebius, NVIDIA Nemotron, and the engineering team.
 
 **[SPOKEN VOICEOVER]**
 > *"Finally, Stage Five hashes every execution artifact into a binary SHA-256 Merkle audit tree, sealed with an HMAC signature. Any engineer, auditor, or CI bot can cryptographically verify that the test was genuinely stressed and genuinely fixed.*  

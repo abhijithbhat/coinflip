@@ -1,7 +1,7 @@
 # Coinflip: Statistical Flaky-Test Investigator & Flake Amplifier
 
 [![CI Quality Gate](https://img.shields.io/badge/CI-Passing%20(164%2F164)-10b981?style=for-the-badge&logo=githubactions&logoColor=white)](https://github.com/abhijithbhat/coinflip)
-[![Live Cloud Demo](https://img.shields.io/badge/Live%20Demo-coinflip--nvidia.onrender.com-0284c7?style=for-the-badge&logo=render&logoColor=white)](https://coinflip-nvidia.onrender.com)
+[![Live Cloud Demo](https://img.shields.io/badge/Live%20Demo-coinflip--2bcw.onrender.com-0284c7?style=for-the-badge&logo=render&logoColor=white)](https://coinflip-2bcw.onrender.com)
 [![Dual-Condition Certification](https://img.shields.io/badge/Certification-Dual--Condition%20SPRT-10b981?style=for-the-badge&logo=target&logoColor=white)](https://github.com/abhijithbhat/coinflip)
 [![NVIDIA Nemotron on Nebius](https://img.shields.io/badge/LLM-NVIDIA%20Nemotron%20on%20Nebius-76b900?style=for-the-badge&logo=nvidia&logoColor=white)](https://tokenfactory.nebius.com)
 [![Nebius Disposable Sandboxes](https://img.shields.io/badge/Sandboxes-Nebius%20contree--sdk-0284c7?style=for-the-badge&logo=linuxcontainers&logoColor=white)](https://nebius.com)
@@ -10,7 +10,7 @@
 > **"A single green test run is not proof of a fix — it is an uncalibrated coin toss."**  
 > Coinflip models flaky test outcomes as Bernoulli random variables ($X \sim \text{Bernoulli}(p)$). It combines causal AST perturbation exploration, multi-armed bandit stress amplification, NVIDIA Nemotron root-cause reasoning on Nebius Token Factory, AST anti-cheat gatekeeping, and Wald's Sequential Probability Ratio Test (SPRT) to produce mathematically certified, cryptographically signed PR verification badges.  
 >  
-> 🌐 **Live Cloud Dashboard**: [https://coinflip-nvidia.onrender.com](https://coinflip-nvidia.onrender.com)
+> 🌐 **Live Cloud Dashboard**: [https://coinflip-2bcw.onrender.com](https://coinflip-2bcw.onrender.com) *(Custom domain pending DNS: https://www.coinflip-nvidia.com)*
 
 ---
 
@@ -273,13 +273,13 @@ export NEBIUS_BASE_URL="https://api.tokenfactory.nebius.com/v1/"
 ### 3. Run Web Dashboard
 
 **Live Production Deployment**:  
-Visit the hosted dashboard on Render: **[https://coinflip-nvidia.onrender.com](https://coinflip-nvidia.onrender.com)**
+Visit the hosted dashboard on Render: **[https://coinflip-2bcw.onrender.com](https://coinflip-2bcw.onrender.com)** *(or [https://www.coinflip-nvidia.com](https://www.coinflip-nvidia.com))*
 
 Or run locally:
 ```bash
 uvicorn agent_and_ui.app:app --host 0.0.0.0 --port 8000 --reload
 ```
-Navigate to `http://localhost:8000` (or `https://coinflip-nvidia.onrender.com`) to interact with:
+Navigate to `http://localhost:8000` (or `https://coinflip-2bcw.onrender.com`) to interact with:
 - **Replay / Live Execution Modes**: Stream live multi-worker runs with real-time SSE progress.
 - **5 Canonical Benchmark Cases**: Background Worker CPU Race, Config Cache Pollution, Unpinned Seed Sampling, Token Expiry Clock, and Async Queue Race.
 - **Coin-Toss Dot Matrices**: Real-time Bernoulli visualizers across all 6 perturbation regimes.
