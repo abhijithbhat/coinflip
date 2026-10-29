@@ -173,7 +173,7 @@
 .dot-instrument + .dot-instrument { padding-top: 17px; border-top: 1px solid var(--border); }
 .dot-filter { padding: 2px; }
 .dot-filter button { height: 21px; padding: 0 6px; font-size: 8px; }
-.dot-matrix { display: grid; grid-template-columns: repeat(20, 8px); gap: 2px; width: fit-content; }
+.dot-matrix { display: grid; grid-template-columns: repeat(20, 8px); column-gap: 4px; row-gap: 2.5px; width: fit-content; }
 .dot-cell { display: block; width: 8px; height: 8px; border-radius: 1.5px; box-shadow: inset 0 0 0 0.5px color-mix(in oklab, var(--card) 45%, transparent); transition: opacity 180ms, transform 150ms; outline-offset: 2px; }
 .dot-pass { background: #22c55e; background: var(--pass); opacity: 1; }
 .dot-fail { background: #ff5722; background: var(--fail); opacity: 1; }
