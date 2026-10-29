@@ -50,6 +50,11 @@ class TestHealthEndpoint:
         assert isinstance(data["nebius_configured"], bool)
         assert data["traces_loaded"] == 5
 
+    def test_health_head_method_and_cache_control(self):
+        response = client.head("/api/health")
+        assert response.status_code == 200
+        assert response.headers.get("cache-control") == "no-store"
+
 
 # -------------------------------------------------------------------------------
 # 2. /api/trace and /api/traces/hero
@@ -465,6 +470,30 @@ class TestVerifyAttestationEndpoint:
         data = response.json()
         assert data["verified"] is True
         assert data["algorithm"] == "SHA-256-Merkle"
+
+    def test_verify_attestation_get_hero_trace_verified(self):
+        """Trace returned by /api/traces/hero verifies cleanly with verified: True."""
+        response = client.get("/api/traces/hero")
+        assert response.status_code == 200
+        hero_data = response.json()
+        resp = client.post("/api/verify-attestation", json={"trace": hero_data})
+        assert resp.status_code == 200
+        result = resp.json()
+        assert result["verified"] is True
+        assert result["algorithm"] == "SHA-256-Merkle"
+        assert result["ledger_merkle_root"]
+
+    def test_verify_attestation_post_run_live_verified(self):
+        """Live trace returned by POST /api/run-live verifies cleanly with verified: True."""
+        live_resp = client.post("/api/run-live", json={"case": "hero", "runs_per_condition": 10})
+        assert live_resp.status_code == 200
+        live_data = live_resp.json()
+        resp = client.post("/api/verify-attestation", json={"trace": live_data})
+        assert resp.status_code == 200
+        result = resp.json()
+        assert result["verified"] is True
+        assert result["algorithm"] == "SHA-256-Merkle"
+        assert result["ledger_merkle_root"]
 
     def test_verify_attestation_tampered_failures_999(self):
         """Submitting a trace with tampered failures: 999 returns verified: False with HTTP 200."""

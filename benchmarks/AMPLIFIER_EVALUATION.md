@@ -1,7 +1,7 @@
 # Coinflip Flake Amplifier: Empirical Evaluation Report
 
 > **Paired Empirical Evaluation against Plain Reruns and Academic State-of-the-Art (Shaker-Style Fixed Stress)**  
-> *Evaluation Budget: 100 runs per test strategy | 20 real-world flaky test archetypes across 6 root-cause families*
+> *Evaluation Budget: 100 runs per test strategy | Evaluated on 5 full end-to-end sandboxed Python benchmark repositories (`benchmarks/hero_worker_race` and `case_01`–`case_04`) and 20 real-world flaky test archetypes across 6 root-cause families in `benchmarks/evaluate_amplifier.py`*
 
 ---
 

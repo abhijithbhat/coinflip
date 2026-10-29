@@ -38,7 +38,7 @@ Every software engineer and AI agent researcher has experienced the frustration 
 - You ask an AI coding assistant to fix it: the assistant edits `time.sleep(0.025)` to `time.sleep(0.050)`, runs pytest once, sees green, and declares *"The bug has been completely resolved!"*
 - Two hours later, the build breaks again.
 
-We realized this is not an LLM hallucination problem — it is an **evaluation methodology crisis**. Flaky tests are **Bernoulli random variables ($X \sim \text{Bernoulli}(p)$)**. A single run gives exactly $N=1$ sample, with an astronomical 95% confidence interval of $[0.0\%, 97.5\%]$. You cannot evaluate non-deterministic systems with single-sample checks.
+We realized this is not an LLM hallucination problem — it is an **evaluation methodology crisis**. Flaky tests are **Bernoulli random variables (independent coin tosses with failure probability *p*)**. A single run gives exactly *N* = 1 sample, with an astronomical 95% confidence interval of [0.0%, 97.5%]. You cannot evaluate non-deterministic systems with single-sample checks.
 
 We built Coinflip to bring the mathematical rigor of clinical trial biostatistics (Fisher's exact test, Holm-Bonferroni corrections, Wilson score intervals, and Wald sequential probability ratio tests) into the automated software engineering loop.
 
@@ -96,7 +96,7 @@ Stage 5: Cryptographic Attestation (SHA-256 Merkle Tree + Server HMAC)
 
 ## 6. Real Benchmark Results & Empirical Proof
 
-We evaluated Coinflip against **20 real-world flaky test archetypes** across 6 root-cause families in a paired 100-run empirical evaluation:
+We evaluated Coinflip across **5 full end-to-end sandboxed Python benchmark repositories** (`benchmarks/hero_worker_race` and `case_01`–`case_04`) and a **20-scenario parameterized evaluation suite** (`benchmarks/evaluate_amplifier.py`) across 6 root-cause families in a paired 100-run empirical evaluation:
 
 | Metric | Plain Reruns | Shaker Fixed Stress | Coinflip Flake Amplifier |
 | :--- | :---: | :---: | :---: |

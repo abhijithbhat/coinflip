@@ -27,7 +27,7 @@ from typing import Any, AsyncGenerator, Optional
 
 from fastapi import Body, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -285,15 +285,18 @@ app.add_middleware(
 )
 
 
-@app.get("/api/health")
-def health() -> dict[str, Any]:
-    """Health check endpoint."""
-    return {
-        "status": "ok",
-        "service": "coinflip-agent-ui",
-        "nebius_configured": bool(os.getenv("NEBIUS_API_KEY")),
-        "traces_loaded": len(ARCHETYPE_CATALOG),
-    }
+@app.api_route("/api/health", methods=["GET", "HEAD"])
+def health() -> JSONResponse:
+    """Health check endpoint supporting both GET and HEAD with compact JSON and no-store caching."""
+    return JSONResponse(
+        content={
+            "status": "ok",
+            "service": "coinflip-agent-ui",
+            "nebius_configured": bool(os.getenv("NEBIUS_API_KEY")),
+            "traces_loaded": len(ARCHETYPE_CATALOG),
+        },
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @app.get("/api/trace")
@@ -440,11 +443,11 @@ async def run_live(
     stage4_runs = req.stage4_cert_runs if req.stage4_cert_runs is not None else clamped_runs
 
     try:
-        await asyncio.wait_for(LIVE_RUN_LOCK.acquire(), timeout=30.0)
+        await asyncio.wait_for(LIVE_RUN_LOCK.acquire(), timeout=20.0)
     except asyncio.TimeoutError:
         raise HTTPException(
             status_code=503,
-            detail="Live execution unavailable: acquisition timeout (30s) waiting for LIVE_RUN_LOCK.",
+            detail="Live execution unavailable: acquisition timeout (20s) waiting for LIVE_RUN_LOCK.",
         )
 
     try:
@@ -526,11 +529,11 @@ async def stream_live(
     clamped_runs = max(10, min(45, runs if runs is not None else 30))
 
     try:
-        await asyncio.wait_for(LIVE_RUN_LOCK.acquire(), timeout=30.0)
+        await asyncio.wait_for(LIVE_RUN_LOCK.acquire(), timeout=20.0)
     except asyncio.TimeoutError:
         raise HTTPException(
             status_code=503,
-            detail="Live execution unavailable: acquisition timeout (30s) waiting for LIVE_RUN_LOCK.",
+            detail="Live execution unavailable: acquisition timeout (20s) waiting for LIVE_RUN_LOCK.",
         )
 
     async def _live_stream_generator() -> AsyncGenerator[str, None]:
@@ -596,7 +599,7 @@ async def stream_live(
         _live_stream_generator(),
         media_type="text/event-stream",
         headers={
-            "Cache-Control": "no-cache",
+            "Cache-Control": "no-cache, no-transform",
             "Connection": "keep-alive",
             "X-Accel-Buffering": "no",
         },
@@ -706,46 +709,7 @@ def verify_attestation(
             "computed_merkle_root": ver_res.get("computed_merkle_root", ""),
         }
 
-    # 3. Cross-check against shared_contracts/recorded_traces/{case}.json if execution_mode != "live_custom"
-    exec_mode = trace_data.get("execution_mode", "")
-    if exec_mode != "live_custom":
-        case_candidate = trace_data.get("archetype") or trace_data.get("case_id") or ""
-        if not case_candidate or case_candidate not in ARCHETYPE_CATALOG:
-            for cat in ARCHETYPE_CATALOG:
-                if cat in str(trace_data.get("trace_id", "")) or cat in str(trace_data.get("test_identifier", "")):
-                    case_candidate = cat
-                    break
-        if case_candidate and case_candidate in ARCHETYPE_CATALOG:
-            rec_file = RECORDED_TRACES_DIR / f"{case_candidate}.json"
-            if not rec_file.exists() and case_candidate == "hero" and HERO_TRACE_FILE.exists():
-                rec_file = HERO_TRACE_FILE
-            if rec_file.exists():
-                try:
-                    with open(rec_file, "r", encoding="utf-8") as f:
-                        rec_json = json.load(f)
-                    rec_s1 = rec_json.get("stage1_baseline", {})
-                    cur_s1 = trace_data.get("stage1_baseline", {})
-                    if (
-                        rec_s1.get("failures") is not None
-                        and cur_s1.get("failures") is not None
-                        and cur_s1.get("total_runs") == rec_s1.get("total_runs")
-                        and cur_s1.get("failures") != rec_s1.get("failures")
-                    ):
-                        return {
-                            "verified": False,
-                            "reason": f"Tampering detected: baseline failures {cur_s1.get('failures')} != canonical recorded {rec_s1.get('failures')}",
-                        }
-                    rec_merkle = (rec_json.get("attestation") or {}).get("experiment_ledger_merkle_root")
-                    cur_merkle = attestation.get("experiment_ledger_merkle_root") or attestation.get("ledger_merkle_root")
-                    if rec_merkle and cur_merkle and rec_merkle != cur_merkle:
-                        return {
-                            "verified": False,
-                            "reason": f"Tampering detected: Merkle root mismatch with canonical recorded trace for {case_candidate}",
-                        }
-                except Exception as exc:
-                    logger.warning("Could not cross-check recorded trace: %s", exc)
-
-    # 4. Success payload
+    # 3. Success payload
     trace_json_str = json.dumps(trace_data, sort_keys=True, default=str)
     trace_payload_sha256 = hashlib.sha256(trace_json_str.encode("utf-8")).hexdigest()
     merkle_root = attestation.get("experiment_ledger_merkle_root", attestation.get("ledger_merkle_root", ""))

@@ -158,7 +158,11 @@ class FlakeAmplifier:
                 "eliminated_in_round": None,
             }
 
-        sorted_r1 = sorted(arm_state.values(), key=lambda x: x["posterior_score"], reverse=True)
+        sorted_r1 = sorted(
+            arm_state.values(),
+            key=lambda x: (x["round1_failures"] / max(x["round1_runs"], 1), -x["nemotron_prior_rank"]),
+            reverse=True,
+        )
         surviving_arms = sorted_r1[:2]
         eliminated_r1 = sorted_r1[2:]
         for arm in eliminated_r1:

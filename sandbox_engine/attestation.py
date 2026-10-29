@@ -104,7 +104,8 @@ class CertificateAttestor:
                 s1_dots,
             ))
             # Stage 2
-            for item in trace.get("stage2_ledger", []):
+            s2_items = trace.get("stage2_ledger") or trace.get("stage2_perturbations") or []
+            for item in s2_items:
                 item_dots = "".join("1" if d else "0" for d in (item.get("run_dots") or []))
                 records.append((
                     _normalize_pert(item.get("perturbation", "")),
@@ -114,7 +115,8 @@ class CertificateAttestor:
                     item_dots,
                 ))
             # Stage 4 Fix Attempts
-            for attempt in trace.get("fix_attempts", []):
+            fix_items = trace.get("fix_attempts") or trace.get("stage4_certification") or []
+            for attempt in fix_items:
                 norm = attempt.get("normal_cert_result", {})
                 norm_dots = "".join("1" if d else "0" for d in (norm.get("run_dots") or []))
                 records.append((

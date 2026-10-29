@@ -137,7 +137,7 @@ function Dashboard() {
                 summary: `${base.failures}/${base.total_runs} quiet (${pct(base.failure_rate)}) · ${stressCond.failures}/${stressCond.total_runs} stress (${pct(stressCond.failure_rate)})`,
               },
               {
-                t: "Attempt 1 · Naive Quick Fix",
+                t: "Attempt 1 · Naive Quick Fix (Agent Baseline Control)",
                 v: "REJECTED" as const,
                 n: a1.normal_cert_result.run_dots,
                 s: a1.stress_cert_result.run_dots,
@@ -150,7 +150,7 @@ function Dashboard() {
                 summary: `${a1.normal_cert_result.failures}/${fmtN(a1.normal_cert_result.total_runs)} quiet · ${a1.stress_cert_result.failures}/${fmtN(a1.stress_cert_result.total_runs)} stress (${pct(a1.stress_cert_result.failure_rate)})`,
               },
               {
-                t: "Attempt 2 · Coinflip Fix",
+                t: "Attempt 2 · Coinflip Certified Fix",
                 v: "CERTIFIED" as const,
                 n: a2.normal_cert_result.run_dots,
                 s: a2.stress_cert_result.run_dots,
@@ -303,7 +303,11 @@ function Dashboard() {
               <div key={a.attempt_number} className={`fix-item space-y-4 ${a.verdict === "CERTIFIED" ? "fix-certified" : "fix-rejected"}`}><div className={`arena-stamp ${a.verdict === "CERTIFIED" ? "text-pass" : "text-fail"}`}>{a.verdict === "CERTIFIED" ? `CERTIFIED (< ${pct(a.upper_bound_95_stress, 2)} BOUND)` : "REJECTED UNDER STRESS"}</div><div className="flex justify-between gap-4 border-b border-border pb-4 font-mono"><div><span className="text-[10px] text-muted-foreground">QUIET MACHINE</span><p className="text-2xl text-pass">{pct(a.normal_cert_result.failure_rate)}<span className="ml-2 text-xs text-muted-foreground">{a.normal_cert_result.failures}/{fmtN(a.normal_cert_result.total_runs)}</span></p></div><div><span className="text-[10px] text-muted-foreground">TRIGGER CONDITION</span><p className={`text-2xl ${a.verdict === "CERTIFIED" ? "text-pass" : "text-fail"}`}>{pct(a.stress_cert_result.failure_rate)}<span className="ml-2 text-xs text-muted-foreground">{a.stress_cert_result.failures}/{fmtN(a.stress_cert_result.total_runs)}</span></p></div></div>
                 <div className="flex items-center justify-between gap-2">
                   <div className="space-y-1">
-                    <h3 className="text-sm font-semibold">Attempt {a.attempt_number} · {a.fix_title}</h3>
+                    <h3 className="text-sm font-semibold">
+                      {a.attempt_number === 1
+                        ? "Attempt 1 · Naive Quick Fix (Agent Baseline Control)"
+                        : `Attempt ${a.attempt_number} · ${a.fix_title}`}
+                    </h3>
                     <FixSourceBadge source={a.fix_source} fallbackVerdict={a.verdict} />
                   </div>
                   <Verdict v={a.verdict} />

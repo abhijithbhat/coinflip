@@ -8,7 +8,7 @@
 [![Cryptographic Attestation](https://img.shields.io/badge/Attestation-SHA--256%20Merkle%20HMAC-6366f1?style=for-the-badge&logo=1password&logoColor=white)](https://github.com/abhijithbhat/coinflip)
 
 > **"A single green test run is not proof of a fix — it is an uncalibrated coin toss."**  
-> Coinflip models flaky test outcomes as Bernoulli random variables ($X \sim \text{Bernoulli}(p)$). It combines causal AST perturbation exploration, multi-armed bandit stress amplification, NVIDIA Nemotron root-cause reasoning on Nebius Token Factory, AST anti-cheat gatekeeping, and Wald's Sequential Probability Ratio Test (SPRT) to produce mathematically certified, cryptographically signed PR verification badges.  
+> Coinflip models flaky test outcomes as Bernoulli trials (independent coin tosses with failure probability *p*). It combines causal AST perturbation exploration, multi-armed bandit stress amplification, NVIDIA Nemotron root-cause reasoning on Nebius Token Factory, AST anti-cheat gatekeeping, and Wald's Sequential Probability Ratio Test (SPRT) to produce mathematically certified, cryptographically signed PR verification badges.  
 >  
 > 🌐 **Live Cloud Dashboard**: [https://coinflip-nvidia.onrender.com/](https://coinflip-nvidia.onrender.com/)
 
@@ -35,7 +35,7 @@ In modern CI/CD pipelines, autonomous AI coding agents (such as Devin, Cursor, C
 When dealing with non-deterministic or concurrency-laden tests, this heuristic fails catastrophically:
 - A test with a **90% failure probability** under high thread contention still has a **10% chance of passing on any single quiet run**.
 - An AI agent will routinely produce a "naive quick fix" (such as arbitrarily increasing `time.sleep(0.025)` to `time.sleep(0.050)`, widening an assertion window, or clearing a global cache in a single test function).
-- The agent runs pytest once on a quiet machine. The run passes ($p = 0.10$). The agent declares victory and opens a Pull Request.
+- The agent runs pytest once on a quiet machine. The run passes (*p* = 0.10). The agent declares victory and opens a Pull Request.
 - In production CI under load, the test flakes again, causing massive pipeline failures, flaky quarantines, and wasted engineering hours.
 
 **Coinflip eliminates this delusion.** Instead of relying on a single exit code, Coinflip:
@@ -153,7 +153,7 @@ If an AI patch fails even 2 runs out of the first 5 under amplified stress, $\La
 ## Empirical Benchmark & Flake Amplifier Results
 
 ### Core Benchmark Suite Evaluation (`benchmarks/BENCHMARK_REPORT.md`)
-Tested across 5 real-world flaky test archetypes (30 runs per condition on `local_isolated` backend):
+Tested across 5 full end-to-end sandboxed Python benchmark repositories (`benchmarks/hero_worker_race` and `case_01`–`case_04` in `benchmarks/real_world_cases/`) and evaluated on a 20-scenario parameterized evaluation suite in `benchmarks/evaluate_amplifier.py`:
 
 | # | Benchmark Suite | Flake Category | Trigger Perturbation | Baseline Fail % | Trigger Fail % | 95% Wilson CI | Spike Confirmed? |
 |---|-----------------|----------------|----------------------|----------------:|---------------:|:-------------:|:----------------:|
@@ -175,7 +175,7 @@ Tested across 5 real-world flaky test archetypes (30 runs per condition on `loca
 ---
 
 ### Paired 100-Run Amplifier Evaluation (`benchmarks/AMPLIFIER_EVALUATION.md`)
-Rigorous paired evaluation across 20 real-world flaky test archetypes (100 runs per strategy):
+Rigorous paired evaluation across 5 sandboxed Python benchmark repositories and the 20-scenario parameterized evaluation suite in `benchmarks/evaluate_amplifier.py` (100 runs per strategy):
 
 | Metric | Strategy 1: Plain Reruns | Strategy 2: Shaker Fixed Stress | Strategy 3: Coinflip Flake Amplifier |
 | :--- | :---: | :---: | :---: |

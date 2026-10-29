@@ -718,9 +718,16 @@ class ASTSemanticGatekeeper:
                 call_name = self._get_call_name(node)
                 # Check sleep calls
                 if call_name in ("time.sleep", "asyncio.sleep", "sleep"):
+                    # Check positional argument (e.g. time.sleep(0.05))
                     if node.args and isinstance(node.args[0], ast.Constant):
                         if isinstance(node.args[0].value, (int, float)):
                             sleep_durations.append(float(node.args[0].value))
+                    # Check keyword argument (e.g. time.sleep(seconds=0.05), asyncio.sleep(delay=0.1))
+                    if node.keywords:
+                        for kw in node.keywords:
+                            if kw.arg in ("secs", "seconds", "delay", "timeout", "s", "t", "duration"):
+                                if isinstance(kw.value, ast.Constant) and isinstance(kw.value.value, (int, float)):
+                                    sleep_durations.append(float(kw.value.value))
 
                 # Check synchronization calls
                 if isinstance(node.func, ast.Attribute):

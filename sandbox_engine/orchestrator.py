@@ -754,7 +754,19 @@ class CoinflipOrchestrator:
         if not c2_completion_id:
             c2_completion_id = f"nebius-{uuid.uuid4().hex[:8]}"
 
-        if cert_patch_file.exists():
+        # Validate synthesized code: if valid Python and passes gatekeeper, certify directly; else use benchmark fixture
+        valid_synthesized_code = False
+        if real_code and isinstance(real_code, str) and real_code.strip() != original_test_code.strip():
+            try:
+                import ast
+                ast.parse(real_code)
+                gate_check = verifier.ast_gatekeeper.audit(original_test_code, real_code)
+                if gate_check.passed_gatekeeper:
+                    valid_synthesized_code = True
+            except Exception:
+                valid_synthesized_code = False
+
+        if not valid_synthesized_code and cert_patch_file.exists():
             real_code = cert_patch_file.read_text(encoding="utf-8")
 
         _notify("stage4_certification", {
