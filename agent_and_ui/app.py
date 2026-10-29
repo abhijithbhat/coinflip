@@ -36,6 +36,7 @@ from agent_and_ui.stats_engine import (
     generate_streak_curve_data,
 )
 from sandbox_engine.attestation import CertificateAttestor
+from shared_contracts.schemas import CoinflipCertificateTrace
 
 logger = logging.getLogger("coinflip.app")
 
@@ -463,14 +464,20 @@ async def run_live(
             session_salt=live_salt,
         )
 
-        trace = await orchestrator.run(
-            stage1_runs=stage1_runs,
-            stage2_runs=stage2_runs,
-            stage4_cert_runs=stage4_runs,
-            target_limit=req.target_limit,
-            demonstrate_rejection_catch=req.demonstrate_rejection_catch,
-            fast_live_mode=True,
-        )
+        def _execute_sync_orchestrator() -> CoinflipCertificateTrace:
+            import asyncio
+            return asyncio.run(
+                orchestrator.run(
+                    stage1_runs=stage1_runs,
+                    stage2_runs=stage2_runs,
+                    stage4_cert_runs=stage4_runs,
+                    target_limit=req.target_limit,
+                    demonstrate_rejection_catch=req.demonstrate_rejection_catch,
+                    fast_live_mode=True,
+                )
+            )
+
+        trace = await asyncio.to_thread(_execute_sync_orchestrator)
 
         data = trace.model_dump() if hasattr(trace, "model_dump") else trace.dict()
         data["streak_curve_data"] = generate_streak_curve_data()
@@ -533,15 +540,17 @@ async def stream_live(
 
     async def _live_stream_generator() -> AsyncGenerator[str, None]:
         queue: asyncio.Queue[tuple[str, dict[str, Any]] | None] = asyncio.Queue()
+        loop = asyncio.get_running_loop()
 
         def _enqueue(evt: str, data: dict[str, Any]) -> None:
-            queue.put_nowait((evt, data))
+            loop.call_soon_threadsafe(queue.put_nowait, (evt, data))
 
-        async def _run_pipeline() -> None:
+        def _run_pipeline_sync() -> None:
             try:
                 from sandbox_engine.orchestrator import CoinflipOrchestrator
 
                 import secrets
+                import asyncio
                 live_salt = secrets.randbelow(900_000) + 100_000
                 orchestrator = CoinflipOrchestrator(
                     repo_dir=case_cfg["repo_dir"],
@@ -553,20 +562,22 @@ async def stream_live(
                     case_id=case_key,
                     session_salt=live_salt,
                 )
-                await orchestrator.run_full_pipeline(
-                    stage1_runs=clamped_runs,
-                    stage2_runs=clamped_runs,
-                    stage4_cert_runs=clamped_runs,
-                    fast_live_mode=True,
-                    on_stage_event=_enqueue,
+                asyncio.run(
+                    orchestrator.run_full_pipeline(
+                        stage1_runs=clamped_runs,
+                        stage2_runs=clamped_runs,
+                        stage4_cert_runs=clamped_runs,
+                        fast_live_mode=True,
+                        on_stage_event=_enqueue,
+                    )
                 )
             except Exception as exc:
                 logger.warning("Live stream failed (%s: %s)", type(exc).__name__, exc)
-                queue.put_nowait(("error", {"message": f"{type(exc).__name__}: {exc}"}))
+                loop.call_soon_threadsafe(queue.put_nowait, ("error", {"message": f"{type(exc).__name__}: {exc}"}))
             finally:
-                queue.put_nowait(None)
+                loop.call_soon_threadsafe(queue.put_nowait, None)
 
-        task = asyncio.create_task(_run_pipeline())
+        task = asyncio.create_task(asyncio.to_thread(_run_pipeline_sync))
         try:
             while True:
                 if await request.is_disconnected():

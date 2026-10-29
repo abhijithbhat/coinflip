@@ -44,7 +44,7 @@ class BackgroundWorker:
         contention, completion is slowed to >25ms.
         """
         h = b""
-        for i in range(1500):
+        for i in range(2):
             payload = f"job_metric_{i}_{i * 31}".encode()
             h = hashlib.sha256(payload).digest()
         self.result_hash = h

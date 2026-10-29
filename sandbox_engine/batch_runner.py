@@ -85,6 +85,7 @@ class SandboxBatchRunner:
         mode: Literal["auto", "local_isolated", "nebius_sandbox"] = "auto",
         nebius_image_tag: str = "python:3.12-slim",
         session_salt: int = 0,
+        fast_live_mode: bool = False,
     ) -> None:
         self.repo_dir = Path(repo_dir).resolve()
         self.test_target = test_target
@@ -92,6 +93,7 @@ class SandboxBatchRunner:
         self.mode = mode
         self.nebius_image_tag = nebius_image_tag
         self.session_salt = session_salt
+        self.fast_live_mode = fast_live_mode or (os.environ.get("COINFLIP_FAST_LIVE_MODE") == "1")
         self._cached_backend: str | None = None
 
     async def probe_sandbox_availability(self) -> bool:
@@ -255,7 +257,7 @@ class SandboxBatchRunner:
     ) -> list[SingleRunResult]:
         """Runs the batch using isolated local temporary directories and high-speed worker pools."""
         resolved_intensity = resolve_default_intensity(perturbation, intensity)
-        is_fast_live = os.environ.get("COINFLIP_FAST_LIVE_MODE") == "1" or os.environ.get("COINFLIP_FAST_MODE") == "1"
+        is_fast_live = self.fast_live_mode or (os.environ.get("COINFLIP_FAST_LIVE_MODE") == "1") or (os.environ.get("COINFLIP_FAST_MODE") == "1")
 
         # In fast live mode, execute zero-copy in-process against the snapshot directly
         if is_fast_live:

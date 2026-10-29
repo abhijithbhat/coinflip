@@ -63,10 +63,13 @@ class NemotronBridge:
         self._check_for_external_agent()
 
         self._client: OpenAI | None = None
+        is_fast_live = os.getenv("COINFLIP_FAST_LIVE_MODE") == "1" or os.getenv("COINFLIP_FAST_MODE") == "1"
         if self.api_key:
             self._client = OpenAI(
                 api_key=self.api_key,
                 base_url=self.base_url,
+                max_retries=0,
+                timeout=3.0 if is_fast_live else 60.0,
             )
 
     def _check_for_external_agent(self) -> None:

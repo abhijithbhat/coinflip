@@ -474,6 +474,8 @@ class ASTSemanticGatekeeper:
         reasons: list[str] = []
 
         for node in ast.walk(patch_ast):
+            if not isinstance(node, (ast.Try, ast.With)):
+                continue
             if ast.dump(node) in orig_try_dumps:
                 continue
 

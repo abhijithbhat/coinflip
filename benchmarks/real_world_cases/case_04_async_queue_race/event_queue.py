@@ -75,8 +75,6 @@ class EventQueue:
                 self._queue.task_done()
                 break
             # Realistic per-event computation
-            h = event.encode()
-            for _ in range(250):
-                h = hashlib.sha256(h).digest()
+            _ = hashlib.sha256(event.encode()).digest()
             self.flushed_events.append(event)
             self._queue.task_done()

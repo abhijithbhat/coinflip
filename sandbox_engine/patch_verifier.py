@@ -45,6 +45,7 @@ class Stage4PatchVerifier:
         mode: Literal["auto", "local_isolated", "nebius_sandbox"] = "auto",
         stats_provider: Any = None,
         session_salt: int = 0,
+        fast_live_mode: bool = False,
     ) -> None:
         self.image_builder = image_builder
         self.base_snapshot_id = base_snapshot_id
@@ -52,6 +53,7 @@ class Stage4PatchVerifier:
         self.max_concurrency = max_concurrency
         self.mode = mode
         self.session_salt = session_salt
+        self.fast_live_mode = fast_live_mode
         self.ast_gatekeeper = ASTSemanticGatekeeper()
 
         if stats_provider is not None:
@@ -77,7 +79,7 @@ class Stage4PatchVerifier:
         target_file_rel: str | None = None,
         enable_sprt: bool = True,
         probe_chunk_size: int = 50,
-        fast_live_mode: bool = False,
+        fast_live_mode: bool | None = None,
         fix_source: Literal["nemotron_live", "naive_baseline_fixture", "offline_fallback_fixture"] = "nemotron_live",
         model_used: str | None = None,
         completion_id: str | None = None,
@@ -173,6 +175,9 @@ class Stage4PatchVerifier:
                 session_salt=self.session_salt,
             )
 
+            if fast_live_mode is None:
+                fast_live_mode = self.fast_live_mode
+
             sprt_telemetry: SPRTExecutionTelemetry | None = None
 
             # Fast Live Mode execution path (< 0.2s certification gate)
@@ -212,8 +217,8 @@ class Stage4PatchVerifier:
                         )
                     sprt_telemetry = sprt_eval
                 else:
-                    # Attempt 2 (Certified Real Fix): 25 normal + 25 stress runs
-                    eval_runs = 25
+                    # Attempt 2 (Certified Real Fix): normal + stress runs
+                    eval_runs = min(cert_runs, 25)
                     logger.info("Running fast live certification (%d normal + %d stress) for '%s'...", eval_runs, eval_runs, fix_title)
                     normal_result = await runner.run_batch(
                         perturbation=PerturbationType.BASELINE,
@@ -342,13 +347,17 @@ class Stage4PatchVerifier:
                     target_limit=target_limit,
                 )
 
-            # Compute upper confidence bounds
+            # Recompute accurate Clopper-Pearson upper confidence bounds and Wilson CIs on real counts
             upper_bound_normal = self.stats_provider.upper_confidence_bound_95(
                 normal_result.failures, normal_result.total_runs
             )
             upper_bound_stress = self.stats_provider.upper_confidence_bound_95(
                 stress_result.failures, stress_result.total_runs
             )
+            ci_normal = wilson_ci_95(normal_result.failures, normal_result.total_runs)
+            ci_stress = wilson_ci_95(stress_result.failures, stress_result.total_runs)
+            normal_result.ci_95_lower, normal_result.ci_95_upper = ci_normal[0], ci_normal[1]
+            stress_result.ci_95_lower, stress_result.ci_95_upper = ci_stress[0], ci_stress[1]
 
             # Assign Coinflip Certification Verdict Rules
             if normal_result.failures > 0:

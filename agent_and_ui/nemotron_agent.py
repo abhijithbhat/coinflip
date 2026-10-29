@@ -276,10 +276,13 @@ class NemotronAgent:
         self.base_url = base_url or os.getenv(
             "NEBIUS_BASE_URL", "https://api.tokenfactory.nebius.com/v1/"
         )
+        is_fast_live = os.getenv("COINFLIP_FAST_LIVE_MODE") == "1" or os.getenv("COINFLIP_FAST_MODE") == "1"
+        effective_timeout = 3.0 if (is_fast_live or timeout <= 3.0) else timeout
         self.client = OpenAI(
             api_key=self.api_key or "missing-api-key",
             base_url=self.base_url,
-            timeout=timeout,
+            timeout=effective_timeout,
+            max_retries=0,
         )
         self.last_reasoning_trace: str | None = None
         self.last_call_metadata: dict[str, Any] = {}

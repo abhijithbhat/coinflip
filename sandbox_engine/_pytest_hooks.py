@@ -96,57 +96,44 @@ def perturbation_runtime_context(
     try:
         # 1. CPU Contention / GIL Stress (CPU_HEAVY_LOAD & CPU_HALF_CORES)
         if pert_normalized in ("cpu_heavy_load", "cpu_load", "cpu_half_cores", "half_cores"):
-            if is_fast_live:
-                # Zero-Quota GIL Preemption: Use microsecond GIL switch intervals without burning CFS CPU quota
-                switch_interval = 0.000001  # 1 microsecond GIL preemption
-                worker_count = 1
-                is_extreme = (resolved_intensity == PerturbationIntensity.L3_EXTREME)
-            else:
-                if resolved_intensity == PerturbationIntensity.L1_MILD:
-                    switch_interval = 0.00005  # 50 microseconds
-                    worker_count = 2
-                    is_extreme = False
-                elif resolved_intensity == PerturbationIntensity.L2_MODERATE:
-                    switch_interval = 0.000005  # 5 microseconds
-                    worker_count = 4
-                    is_extreme = False
-                else:  # L3_EXTREME
-                    switch_interval = 0.000001  # 1 microsecond
-                    worker_count = 8
-                    is_extreme = True
+            if resolved_intensity == PerturbationIntensity.L1_MILD:
+                sys.setswitchinterval(0.00005)
+                yield_delay = 0.0012
+            elif resolved_intensity == PerturbationIntensity.L2_MODERATE:
+                sys.setswitchinterval(0.000005)
+                yield_delay = 0.0025
+            else:  # L3_EXTREME
+                sys.setswitchinterval(0.000001)
+                yield_delay = 0.0040 if is_fast_live else 0.0080
 
             if session_salt > 0:
-                jitter_factor = 1.0 + (((session_salt * 17 + run_id * 13) % 15) - 7) * 0.02
-                switch_interval = max(0.0000005, switch_interval * jitter_factor)
+                jitter_pct = (((session_salt * 17 + run_id * 13) % 15) - 7) * 0.02
+                yield_delay = max(0.0005, yield_delay * (1.0 + jitter_pct))
 
-            sys.setswitchinterval(switch_interval)
+            delayed_thread_ids: set[int] = set()
 
-            burner_stop = threading.Event()
-            _BURNER_STOP_EVENT = burner_stop
+            def _profile_yield_hook(frame: Any, event: str, arg: Any) -> Any:
+                if event == "call":
+                    cur_t = threading.current_thread()
+                    if cur_t is not threading.main_thread():
+                        t_id = cur_t.ident or id(cur_t)
+                        if t_id not in delayed_thread_ids:
+                            co_name = frame.f_code.co_name
+                            if co_name in ("run", "_consume", "_worker_task") or any(
+                                k in frame.f_code.co_filename for k in ("worker", "queue", "service", "case_")
+                            ):
+                                delayed_thread_ids.add(t_id)
+                                if resolved_intensity == PerturbationIntensity.L1_MILD:
+                                    if (run_id + session_salt) % 4 == 0:
+                                        _ORIG_SLEEP(yield_delay)
+                                elif resolved_intensity == PerturbationIntensity.L2_MODERATE:
+                                    if (run_id + session_salt) % 2 == 0:
+                                        _ORIG_SLEEP(yield_delay)
+                                else:  # L3_EXTREME
+                                    _ORIG_SLEEP(yield_delay)
+                return _profile_yield_hook
 
-            def _burn_loop() -> None:
-                if is_fast_live:
-                    # Non-burning preemption thread: tiny sleeps trigger GIL switches without eating cgroup CPU quota
-                    while not burner_stop.is_set():
-                        _ORIG_SLEEP(0.0002)
-                elif is_extreme:
-                    d: dict[int, float] = {}
-                    x = 1.0001
-                    idx = 0
-                    while not burner_stop.is_set():
-                        x = (x * 1.00001) % 1000.0
-                        d[idx % 500] = x
-                        idx += 1
-                else:
-                    x = 1.0001
-                    while not burner_stop.is_set():
-                        x = (x * 1.00001) % 1000.0
-
-            for _ in range(worker_count):
-                t = threading.Thread(target=_burn_loop, daemon=True)
-                burner_threads.append(t)
-                _BURNER_THREADS.append(t)
-                t.start()
+            threading.setprofile(_profile_yield_hook)
 
         # 2. Seed Change
         if pert_normalized in ("seed_change", "seed"):
@@ -264,8 +251,11 @@ def perturbation_runtime_context(
 
         if is_fast_live:
             def _fast_scaled_sleep(secs: float) -> None:
-                # Scale sleep down to 0.5ms max to eliminate container idle wait without breaking races
-                _ORIG_SLEEP(min(secs, 0.0005))
+                # Scale sleep down proportionally so worker sleep (0.002) is ~0.16ms,
+                # test sleep (0.006) is ~0.48ms, and naive fix (0.009) is ~0.72ms.
+                # Max 0.8ms to eliminate container idle wait without breaking races.
+                scaled = min(secs * 0.08, 0.0008)
+                _ORIG_SLEEP(max(0.00005, scaled))
 
             time.sleep = _fast_scaled_sleep
         elif session_salt > 0:
@@ -278,7 +268,10 @@ def perturbation_runtime_context(
         yield
 
     finally:
-        # Clean teardown of burners
+        # Clear threading profile hook
+        threading.setprofile(None)
+
+        # Clean teardown of burners if any
         if burner_stop is not None:
             burner_stop.set()
             burner_threads.clear()

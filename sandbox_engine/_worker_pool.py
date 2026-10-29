@@ -17,6 +17,7 @@ import sys
 import time
 import traceback
 from collections.abc import Callable
+from typing import Any
 from pathlib import Path
 
 # Ensure workspace root is in sys.path
@@ -31,6 +32,8 @@ from shared_contracts.schemas import PerturbationIntensity, PerturbationType, Si
 _ORIG_TIME = time.time
 _ORIG_SLEEP = time.sleep
 _ORIG_SOCKET_CONNECT = socket.socket.connect
+
+_MODULE_CACHE: dict[str, tuple[int, list[Callable[[], None]], list[Callable[[], Any]], bool]] = {}
 
 
 def _reset_benchmark_state() -> None:
@@ -86,48 +89,63 @@ def run_worker_chunk(
         if matches:
             target_path = matches[0]
 
-    # Clean up any previously imported test modules to prevent pytest import file mismatch
-    mod_name = target_path.stem
-    for k in list(sys.modules.keys()):
-        if k == mod_name or k.startswith(f"{mod_name}."):
-            sys.modules.pop(k, None)
+    cache_key = str(target_path)
+    mtime = target_path.stat().st_mtime_ns if target_path.exists() else 0
+    cached = _MODULE_CACHE.get(cache_key)
+    if cached is not None and cached[0] == mtime:
+        _, direct_test_funcs, autouse_fixtures, can_direct_exec = cached
+    else:
+        # Clean up any previously imported test modules to prevent pytest import file mismatch
+        mod_name = target_path.stem
+        for k in list(sys.modules.keys()):
+            if k == mod_name or k.startswith(f"{mod_name}."):
+                sys.modules.pop(k, None)
 
-    # Execute conftest.py if present to initialize path & fixture context
-    conftest_path = temp_dir / "conftest.py"
-    if conftest_path.exists():
-        try:
-            spec_conf = importlib.util.spec_from_file_location("coinflip_conftest", str(conftest_path))
-            if spec_conf and spec_conf.loader:
-                mod_conf = importlib.util.module_from_spec(spec_conf)
-                spec_conf.loader.exec_module(mod_conf)
-        except Exception:
-            pass
+        # Execute conftest.py if present to initialize path & fixture context
+        conftest_path = temp_dir / "conftest.py"
+        if conftest_path.exists():
+            try:
+                spec_conf = importlib.util.spec_from_file_location("coinflip_conftest", str(conftest_path))
+                if spec_conf and spec_conf.loader:
+                    mod_conf = importlib.util.module_from_spec(spec_conf)
+                    spec_conf.loader.exec_module(mod_conf)
+            except Exception:
+                pass
 
-    direct_test_funcs: list[Callable[[], None]] = []
-    can_direct_exec = False
-    if target_path.exists() and target_path.suffix == ".py":
-        try:
-            spec = importlib.util.spec_from_file_location("coinflip_chunk_target", str(target_path))
-            if spec and spec.loader:
-                mod = importlib.util.module_from_spec(spec)
-                sys.modules["coinflip_chunk_target"] = mod
-                spec.loader.exec_module(mod)
-                funcs = [
-                    getattr(mod, name)
-                    for name in dir(mod)
-                    if name.startswith("test_") and callable(getattr(mod, name))
-                ]
-                has_fixtures = any(
-                    hasattr(getattr(mod, name), "_fixture_function_marker")
-                    or hasattr(getattr(mod, name), "_pytestfixturefunction")
-                    for name in dir(mod)
-                )
-                if not has_fixtures and funcs and all(len(inspect.signature(f).parameters) == 0 for f in funcs):
-                    funcs.sort(key=lambda f: f.__code__.co_firstlineno)
-                    direct_test_funcs = funcs
-                    can_direct_exec = True
-        except Exception:
-            can_direct_exec = False
+        direct_test_funcs: list[Callable[[], None]] = []
+        autouse_fixtures: list[Callable[[], Any]] = []
+        can_direct_exec = False
+        if target_path.exists() and target_path.suffix == ".py":
+            try:
+                spec = importlib.util.spec_from_file_location("coinflip_chunk_target", str(target_path))
+                if spec and spec.loader:
+                    mod = importlib.util.module_from_spec(spec)
+                    sys.modules["coinflip_chunk_target"] = mod
+                    spec.loader.exec_module(mod)
+                    funcs = [
+                        getattr(mod, name)
+                        for name in dir(mod)
+                        if name.startswith("test_") and callable(getattr(mod, name))
+                    ]
+                    fixtures = [
+                        getattr(mod, name)
+                        for name in dir(mod)
+                        if (
+                            hasattr(getattr(mod, name), "_fixture_function_marker")
+                            or hasattr(getattr(mod, name), "_pytestfixturefunction")
+                        )
+                        and callable(getattr(mod, name))
+                    ]
+                    if funcs and all(len(inspect.signature(f).parameters) == 0 for f in funcs) and all(
+                        len(inspect.signature(fx).parameters) == 0 for fx in fixtures
+                    ):
+                        funcs.sort(key=lambda f: f.__code__.co_firstlineno)
+                        direct_test_funcs = funcs
+                        autouse_fixtures = fixtures
+                        can_direct_exec = True
+            except Exception:
+                can_direct_exec = False
+        _MODULE_CACHE[cache_key] = (mtime, direct_test_funcs, autouse_fixtures, can_direct_exec)
 
     results: list[SingleRunResult] = []
 
@@ -198,7 +216,21 @@ def run_worker_chunk(
                         perturbation, run_id=run_id, base_seed=base_seed, intensity=ctx.intensity, session_salt=session_salt
                     ):
                         for f in funcs_to_run:
-                            f()
+                            gens = []
+                            try:
+                                for fix in autouse_fixtures:
+                                    fix_fn = getattr(fix, "__wrapped__", fix)
+                                    res = fix_fn()
+                                    if inspect.isgenerator(res):
+                                        next(res)
+                                        gens.append(res)
+                                f()
+                            finally:
+                                for g in reversed(gens):
+                                    try:
+                                        next(g)
+                                    except (StopIteration, Exception):
+                                        pass
                 except Exception as e:
                     passed = False
                     exit_code = 1
@@ -292,7 +324,7 @@ def run_inprocess_worker_pool(
     temp_dir: Path | str,
     test_target: str,
     perturbation: PerturbationType | str,
-    run_ids: list[int],
+    run_ids: list[int] | int,
     base_seed: int = 1000,
     num_workers: int | None = None,
     intensity: PerturbationIntensity | str | None = None,
@@ -309,6 +341,8 @@ def run_inprocess_worker_pool(
         perturbation = PerturbationType(perturbation)
     if isinstance(intensity, str):
         intensity = PerturbationIntensity(intensity)
+    if isinstance(run_ids, int):
+        run_ids = list(range(run_ids))
 
     return run_worker_chunk(
         temp_dir=temp_dir,
@@ -319,6 +353,31 @@ def run_inprocess_worker_pool(
         intensity=intensity,
         session_salt=session_salt,
     )
+
+
+def run_test_batch_in_pool(
+    temp_dir: Path | str,
+    test_target: str,
+    perturbation: PerturbationType | str,
+    run_ids: list[int] | int,
+    base_seed: int = 1000,
+    intensity: PerturbationIntensity | str | None = None,
+    session_salt: int = 0,
+    **kwargs: Any,
+) -> list[SingleRunResult]:
+    """Compiles/imports test module once per batch and executes test runs in-process."""
+    return run_inprocess_worker_pool(
+        temp_dir=temp_dir,
+        test_target=test_target,
+        perturbation=perturbation,
+        run_ids=run_ids,
+        base_seed=base_seed,
+        intensity=intensity,
+        session_salt=session_salt,
+    )
+
+
+_run_in_process_fast = run_test_batch_in_pool
 
 
 def main() -> None:
