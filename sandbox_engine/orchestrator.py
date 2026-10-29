@@ -275,7 +275,20 @@ class CoinflipOrchestrator:
             on_stage_event=on_stage_event,
             session_salt=session_salt,
         )
-        return _AutoAwaitableTrace(coro)
+        try:
+            asyncio.get_running_loop()
+            return coro
+        except RuntimeError:
+            return _AutoAwaitableTrace(coro)
+
+    def run_sync(self, **kwargs: Any) -> CoinflipCertificateTrace:
+        """Explicit synchronous runner for CLI scripts and non-async environments."""
+        res = self.run(**kwargs)
+        if hasattr(res, "_ensure_done"):
+            return res._ensure_done()
+        if asyncio.iscoroutine(res):
+            return asyncio.run(res)
+        return res
 
     async def _run_async(
         self,

@@ -747,10 +747,23 @@ export async function runLive(caseId?: CaseId): Promise<{ ok: boolean; data?: Pa
           runs_per_condition: 25,
         }),
       });
-      if (!r.ok) continue;
-      return { ok: true, data: await r.json() };
+      if (r.ok) {
+        return { ok: true, data: await r.json() };
+      }
+      // If server responded with an error status (e.g. 503, 429, 500), extract message
+      try {
+        const errJson = await r.json();
+        if (errJson && errJson.detail) {
+          return { ok: false, error: `Live execution error (${r.status}): ${errJson.detail}` };
+        }
+      } catch {
+        /* ignore parse error */
+      }
+      if (r.status >= 500) {
+        return { ok: false, error: `Live execution service temporarily unavailable (${r.status}).` };
+      }
     } catch {
-      /* next */
+      /* network failure, try next URL */
     }
   }
   return { ok: false, error: "Live sandbox backend unreachable — showing recorded replay." };

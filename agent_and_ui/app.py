@@ -36,7 +36,6 @@ from agent_and_ui.stats_engine import (
     generate_streak_curve_data,
 )
 from sandbox_engine.attestation import CertificateAttestor
-from shared_contracts.schemas import CoinflipCertificateTrace
 
 logger = logging.getLogger("coinflip.app")
 
@@ -464,20 +463,16 @@ async def run_live(
             session_salt=live_salt,
         )
 
-        def _execute_sync_orchestrator() -> CoinflipCertificateTrace:
-            import asyncio
-            return asyncio.run(
-                orchestrator.run(
-                    stage1_runs=stage1_runs,
-                    stage2_runs=stage2_runs,
-                    stage4_cert_runs=stage4_runs,
-                    target_limit=req.target_limit,
-                    demonstrate_rejection_catch=req.demonstrate_rejection_catch,
-                    fast_live_mode=True,
-                )
-            )
-
-        trace = await asyncio.to_thread(_execute_sync_orchestrator)
+        trace = await orchestrator.run(
+            stage1_runs=stage1_runs,
+            stage2_runs=stage2_runs,
+            stage4_cert_runs=stage4_runs,
+            target_limit=req.target_limit,
+            demonstrate_rejection_catch=req.demonstrate_rejection_catch,
+            fast_live_mode=True,
+        )
+        if hasattr(trace, "_ensure_done"):
+            trace = trace._ensure_done()
 
         data = trace.model_dump() if hasattr(trace, "model_dump") else trace.dict()
         data["streak_curve_data"] = generate_streak_curve_data()
