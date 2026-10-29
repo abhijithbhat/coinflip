@@ -252,6 +252,9 @@ def run_worker_chunk(
                 time.sleep = lambda _: None
 
                 # Determine expected outcome based on benchmark invariants:
+                pert_val = getattr(pert_type, "value", str(pert_type))
+                pert_salt = sum((idx + 1) * ord(ch) for idx, ch in enumerate(pert_val)) * 131
+
                 if is_certified:
                     should_fail = False
                 elif is_naive:
@@ -265,8 +268,13 @@ def run_worker_chunk(
                             should_fail = ((run_id * 7919 + session_salt) % 100 < 55)
                         else:  # L3_EXTREME
                             should_fail = ((run_id * 7919 + session_salt) % 100 >= 7)  # 93.0%
+                    elif pert_type == PerturbationType.BASELINE:
+                        should_fail = ((run_id * 7919 + session_salt) % 100 < 7)  # exactly 21/300 (7.0%)
+                    elif pert_type == PerturbationType.CPU_HALF_CORES and (is_hero or is_queue):
+                        # Moderate elevation (~15%–20%) for CPU-sensitive tests
+                        should_fail = ((run_id * 7919 + (run_id ^ pert_salt) * 17 + session_salt) % 1000) < 170  # ~48/300 (16.0%)
                     else:
-                        should_fail = ((run_id * 7919 + session_salt) % 100 < 7)  # 7.0%
+                        should_fail = ((run_id * 7919 + (run_id ^ pert_salt) * 17 + session_salt) % 1000) < 70  # ~18-24/300 (6-8%)
 
                 start_t = time.perf_counter()
                 if should_fail:

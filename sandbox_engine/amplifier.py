@@ -126,18 +126,23 @@ class FlakeAmplifier:
                     intensity=intensity,
                 )
 
+            # Slice the first r1_runs (8 runs) so Round 1 probe is always n=8
+            r1_runs_count = min(self.r1_runs, batch_res.total_runs)
             if batch_res.run_dots:
-                for passed in batch_res.run_dots:
+                r1_slice = batch_res.run_dots[:r1_runs_count]
+                r1_failures_count = sum(1 for p in r1_slice if not p)
+                for passed in r1_slice:
                     cumulative_runs += 1
                     if not passed and runs_to_first_failure is None:
                         runs_to_first_failure = cumulative_runs
             else:
-                if batch_res.failures > 0 and runs_to_first_failure is None:
-                    runs_to_first_failure = cumulative_runs + 1
-                cumulative_runs += batch_res.total_runs
+                r1_failures_count = round(batch_res.failure_rate * r1_runs_count)
+                cumulative_runs += r1_runs_count
+                if r1_failures_count > 0 and runs_to_first_failure is None:
+                    runs_to_first_failure = 1
 
             prior_weight = max(0.0, (5 - rank) * 0.1)
-            posterior_score = (batch_res.failures + prior_weight) / (batch_res.total_runs + 1.0)
+            posterior_score = (r1_failures_count + prior_weight) / (r1_runs_count + 1.0)
 
             arm_state[arm_id] = {
                 "arm_id": arm_id,
@@ -145,8 +150,8 @@ class FlakeAmplifier:
                 "intensity": intensity,
                 "nemotron_prior_rank": rank,
                 "nemotron_rationale": rationale,
-                "round1_runs": batch_res.total_runs,
-                "round1_failures": batch_res.failures,
+                "round1_runs": r1_runs_count,
+                "round1_failures": r1_failures_count,
                 "round2_runs": 0,
                 "round2_failures": 0,
                 "posterior_score": posterior_score,

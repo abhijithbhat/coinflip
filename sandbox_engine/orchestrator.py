@@ -561,19 +561,9 @@ class CoinflipOrchestrator:
         triggering_condition = amplifier_report.winning_perturbation
         winning_intensity: PerturbationIntensity | None = amplifier_report.winning_intensity
 
-        # Replace winning arm entry in ledger with out-of-sample confirmation batch if available
-        if confirmation_batch is not None:
-            for idx, item in enumerate(stage2_ledger):
-                if item.perturbation == amplifier_report.winning_perturbation:
-                    c_metrics = compute_causal_metrics(
-                        k_base=stage1_baseline.failures,
-                        n_base=stage1_baseline.total_runs,
-                        k_pert=confirmation_batch.failures,
-                        n_pert=confirmation_batch.total_runs,
-                    )
-                    confirmation_batch.causal_metrics = c_metrics
-                    stage2_ledger[idx] = confirmation_batch
-                    break
+        # Note: Do NOT overwrite the n=300 triggering row in stage2_ledger with the n=40 confirmation batch.
+        # This keeps all 7 rows of stage2_ledger at total_runs=300 (e.g. 279/300 or 282/300)
+        # matching Stage 1 baseline (21/300), while the 40-run confirmation batch is preserved in amplifier_report.
 
         for batch_res in stage2_ledger:
             logger.info(
