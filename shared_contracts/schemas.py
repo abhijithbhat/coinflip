@@ -345,6 +345,10 @@ class CoinflipCertificateTrace(BaseModel):
         ...,
         description="Stage 2: Perturbation ledger testing all 7 conditions",
     )
+    stage2_perturbations: list[BatchExperimentResult] | None = Field(
+        default=None,
+        description="Alias for stage2_ledger",
+    )
     triggering_stress_condition: PerturbationType = Field(
         ...,
         description="The condition identified as dramatically amplifying the flake rate",
@@ -353,6 +357,33 @@ class CoinflipCertificateTrace(BaseModel):
         ...,
         description="Stages 3 & 4: Sequence of candidate patches and their stress-certification results",
     )
+    stage4_certification: list[CandidateFixEvaluation] | None = Field(
+        default=None,
+        description="Alias for fix_attempts",
+    )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _sync_trace_aliases_before(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            if "stage2_ledger" in data and "stage2_perturbations" not in data:
+                data["stage2_perturbations"] = data["stage2_ledger"]
+            elif "stage2_perturbations" in data and "stage2_ledger" not in data:
+                data["stage2_ledger"] = data["stage2_perturbations"]
+
+            if "fix_attempts" in data and "stage4_certification" not in data:
+                data["stage4_certification"] = data["fix_attempts"]
+            elif "stage4_certification" in data and "fix_attempts" not in data:
+                data["fix_attempts"] = data["stage4_certification"]
+        return data
+
+    @model_validator(mode="after")
+    def _sync_trace_aliases_after(self) -> CoinflipCertificateTrace:
+        if self.stage2_perturbations is None:
+            self.stage2_perturbations = self.stage2_ledger
+        if self.stage4_certification is None:
+            self.stage4_certification = self.fix_attempts
+        return self
     final_verdict: Literal["PASS", "NOT_YET_CERTIFIED"] = Field(
         ...,
         description="Overall certificate verdict: PASS if a fix is CERTIFIED under stress; NOT_YET_CERTIFIED otherwise",
