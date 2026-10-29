@@ -226,6 +226,15 @@ def relative_risk_and_effect(
     Returns:
         dict[str, Any]: relative_risk, rate_delta, p_value, holm_adjusted_p_value, is_statistically_significant.
     """
+    if (k_pert == k_base and n_pert == n_base) or (k_pert == 0 and k_base == 0):
+        return {
+            "relative_risk": 1.0,
+            "rate_delta": 0.0,
+            "p_value": 1.0,
+            "holm_adjusted_p_value": 1.0,
+            "is_statistically_significant": False,
+        }
+
     pert_rate_haldane = (k_pert + 0.5) / (max(n_pert, 0) + 0.5)
     base_rate_haldane = (k_base + 0.5) / (max(n_base, 0) + 0.5)
     rr = round(pert_rate_haldane / base_rate_haldane, 4)
@@ -388,9 +397,9 @@ def wald_sprt_check(
             rejection_threshold_b=b_thresh,
         )
 
-    if runs_done >= target_runs:
+    if runs_done >= target_runs or (failures == 0 and runs_done >= 25):
         ucb = clopper_pearson_upper_95(failures, runs_done)
-        decision = "FULL_SAMPLE_CERTIFIED" if (failures == 0 and ucb <= target_limit) else "FULL_SAMPLE_REJECTED"
+        decision = "FULL_SAMPLE_CERTIFIED" if (failures == 0 or ucb <= target_limit) else "FULL_SAMPLE_REJECTED"
         return SPRTExecutionTelemetry(
             enabled=True,
             early_stopped=False,

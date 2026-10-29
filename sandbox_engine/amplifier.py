@@ -65,28 +65,11 @@ class FlakeAmplifier:
 
         self.candidate_arms = list(raw_arms[:4])
 
-        # Allocate budget
-        if fast_live_mode:
-            if self.prior_results:
-                self.exploration_budget = 20
-                self.confirmation_budget = 20
-                self.r1_runs = 0
-                self.r2_runs = 10
-            else:
-                self.exploration_budget = exploration_budget if exploration_budget != 60 else 24
-                self.confirmation_budget = confirmation_budget if confirmation_budget != 40 else 20
-                if self.exploration_budget >= 28:
-                    self.r1_runs = 4
-                    self.r2_runs = 6
-                else:
-                    self.r1_runs = 3
-                    self.r2_runs = 6
-        else:
-            self.exploration_budget = exploration_budget
-            self.confirmation_budget = confirmation_budget
-            self.r1_runs = 8 if exploration_budget == 60 else max(1, exploration_budget // 8)
-            remaining = self.exploration_budget - (self.r1_runs * 4)
-            self.r2_runs = 14 if exploration_budget == 60 else max(1, remaining // 2)
+        # Allocate budget: n=60 explore + n=40 confirm
+        self.exploration_budget = 60
+        self.confirmation_budget = 40
+        self.r1_runs = 8
+        self.r2_runs = 14
 
     async def run(self) -> tuple[FlakeAmplifierReport, BatchExperimentResult]:
         """Executes the full 3-stage adaptive search and confirmation.

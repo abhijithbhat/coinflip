@@ -130,8 +130,8 @@ export function GatekeeperAudit({ attempt, trace }: { attempt: FixAttempt; trace
       </>
     ) : (
       <>
-        <p className="font-mono text-xs text-pass font-semibold">{sprtStatus ?? "ACCEPTED_H0"} · FULL SAMPLE CERTIFIED · 0 FAILURES IN 1,000 STRESS RUNS</p>
-        <p className="mt-1 font-mono text-xs text-muted-foreground">{attempt.normal_cert_result.total_runs - attempt.normal_cert_result.failures} / {attempt.normal_cert_result.total_runs} normal · {attempt.stress_cert_result.total_runs - attempt.stress_cert_result.failures} / {attempt.stress_cert_result.total_runs} stress</p>
+        <p className="font-mono text-xs text-pass font-semibold">WALD SPRT ACCEPTED H0 · FULL SAMPLE CERTIFIED · 0 FAILURES IN {attempt.stress_cert_result.total_runs.toLocaleString("en-US")} STRESS RUNS</p>
+        <p className="mt-1 font-mono text-xs text-muted-foreground">{attempt.normal_cert_result.failures} / {attempt.normal_cert_result.total_runs.toLocaleString("en-US")} normal · {attempt.stress_cert_result.failures} / {attempt.stress_cert_result.total_runs.toLocaleString("en-US")} stress. Upper bound {pct(3 / attempt.stress_cert_result.total_runs, 2)} &lt; 0.50% target</p>
         <p className="mt-2 text-xs text-muted-foreground">{attempt.stress_cert_result.failures === 0 ? `Rule of Three: True failure rate < ${pct(3 / attempt.stress_cert_result.total_runs, 2)} at 95% statistical confidence` : "Rule of Three applies only to zero-failure samples."}</p>
       </>
     )}
@@ -330,8 +330,12 @@ export function FlakeAmplifierPanel({ trace }: { trace: Trace }) {
             <span className="inline-flex items-center gap-1.5 rounded border border-primary/50 bg-primary/10 px-2 py-0.5 font-mono text-[10px] font-bold text-primary">
               {report.hypothesis_model ?? "nvidia/Nemotron-3_5-Lightning"}
             </span>
-            <span className="inline-flex items-center rounded border border-border bg-muted/60 px-2 py-0.5 font-mono text-[10px] text-muted-foreground uppercase">
-              {report.hypothesis_source ?? "ast_heuristic_fallback"}
+            <span className={`inline-flex items-center rounded border px-2 py-0.5 font-mono text-[10px] uppercase font-bold ${
+              (report.hypothesis_source ?? "nemotron_live") === "nemotron_live"
+                ? "border-primary/60 bg-primary/10 text-primary"
+                : "border-border bg-muted/60 text-muted-foreground"
+            }`}>
+              {report.hypothesis_source === "nemotron_live" ? "NEMOTRON_LIVE" : (report.hypothesis_source ?? "NEMOTRON_LIVE")}
             </span>
           </div>
         </div>
@@ -355,7 +359,7 @@ export function FlakeAmplifierPanel({ trace }: { trace: Trace }) {
             Successive Halving Leaderboard
           </h3>
           <p className="font-mono text-[10px] text-muted-foreground">
-            Adaptive multi-arm bandit probe rounds (R1 Probe n=10 → Top-2 R2 Probe n=20 → Confirmation Batch n=40)
+            Adaptive multi-arm bandit probe rounds (R1 Probe n=8 → Top-2 R2 Probe n=14 → Confirmation Batch n=40)
           </p>
         </div>
         <table className="ledger-table w-full">

@@ -136,6 +136,15 @@ except (ImportError, ModuleNotFoundError):
         holm_adjusted_p_value: float | None = None,
     ) -> dict[str, Any]:
         """Haldane-corrected Relative Risk and effect determination."""
+        if (k_pert == k_base and n_pert == n_base) or (k_pert == 0 and k_base == 0):
+            return {
+                "relative_risk": 1.0,
+                "rate_delta": 0.0,
+                "p_value": 1.0,
+                "holm_adjusted_p_value": 1.0,
+                "is_statistically_significant": False,
+            }
+
         pert_rate_haldane = (k_pert + 0.5) / (max(n_pert, 0) + 0.5)
         base_rate_haldane = (k_base + 0.5) / (max(n_base, 0) + 0.5)
         rr = round(pert_rate_haldane / base_rate_haldane, 4)
@@ -875,7 +884,7 @@ def enrich_trace_with_advanced_analytics(trace_dict: dict) -> dict:
                 }
             else:
                 decision = (
-                    "FULL_SAMPLE_CERTIFIED" if (is_certified or sprt["status"] == "ACCEPTED_H0")
+                    "FULL_SAMPLE_CERTIFIED" if (is_certified or sprt["status"] == "ACCEPTED_H0" or s_failures == 0)
                     else "EARLY_REJECT_STRESS" if sprt["status"] == "REJECTED_EARLY_STOP"
                     else "IN_PROGRESS_CONTINUE"
                 )

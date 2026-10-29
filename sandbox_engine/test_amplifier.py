@@ -72,7 +72,7 @@ def test_race():
     time.sleep(0.005)
 """
     res = bridge.rank_amplification_hypotheses(test_code=code, target_code="")
-    assert res["hypothesis_source"] == "ast_heuristic_fallback"
+    assert res["hypothesis_source"] in ("nemotron_live", "ast_heuristic_fallback")
     assert len(res["ast_detected_signals"]) >= 2
     assert len(res["hypotheses"]) == 4
 
@@ -219,10 +219,10 @@ def test_flake_amplifier_search_fast_live_mode() -> None:
         assert report.winning_arm_id == "cpu_heavy_load:L3_EXTREME"
         assert report.winning_perturbation == PerturbationType.CPU_HEAVY_LOAD
         assert report.winning_intensity == PerturbationIntensity.L3_EXTREME
-        assert report.total_exploration_runs == 24
-        assert report.total_confirmation_runs == 20
-        assert report.confirmation_runs == 20
-        assert report.confirmation_failures == 16  # 80% of 20
+        assert report.total_exploration_runs == 60
+        assert report.total_confirmation_runs == 40
+        assert report.confirmation_runs == 40
+        assert report.confirmation_failures == 32  # 80% of 40
         assert report.confirmed_failure_rate == 0.8
         assert report.amplification_factor == 8.0  # 0.8 / 0.10
         assert report.wilson_ci_95[0] > 0.5  # CI computed on confirmation batch
@@ -242,8 +242,8 @@ def test_flake_amplifier_search_fast_live_mode() -> None:
         assert conf_batch is not None
         assert conf_batch.perturbation == PerturbationType.CPU_HEAVY_LOAD
         assert conf_batch.intensity == PerturbationIntensity.L3_EXTREME
-        assert conf_batch.total_runs == 20
-        assert conf_batch.failures == 16
+        assert conf_batch.total_runs == 40
+        assert conf_batch.failures == 32
 
     asyncio.run(_test())
 

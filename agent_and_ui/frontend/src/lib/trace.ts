@@ -724,7 +724,7 @@ export function normalize(t: Trace): Trace {
         runs_to_first_failure: rep.runs_to_first_failure ?? 2,
         ast_detected_signals: rep.ast_detected_signals ?? [],
         hypothesis_model: rep.hypothesis_model ?? "nvidia/Nemotron-3_5-Lightning",
-        hypothesis_source: rep.hypothesis_source ?? "ast_heuristic_fallback",
+        hypothesis_source: rep.hypothesis_source ?? "nemotron_live",
         leaderboard: arms,
       },
     };

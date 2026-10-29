@@ -128,6 +128,12 @@ function Dashboard() {
                 v: "BROKEN" as const,
                 n: base.run_dots,
                 s: origStressDots,
+                nFailures: base.failures,
+                nTotal: base.total_runs,
+                sFailures: stressCond.failures,
+                sTotal: stressCond.total_runs,
+                nEarlyStopped: false,
+                sEarlyStopped: false,
                 summary: `${base.failures}/${base.total_runs} quiet (${pct(base.failure_rate)}) · ${stressCond.failures}/${stressCond.total_runs} stress (${pct(stressCond.failure_rate)})`,
               },
               {
@@ -135,6 +141,12 @@ function Dashboard() {
                 v: "REJECTED" as const,
                 n: a1.normal_cert_result.run_dots,
                 s: a1.stress_cert_result.run_dots,
+                nFailures: a1.normal_cert_result.failures,
+                nTotal: a1.normal_cert_result.total_runs,
+                sFailures: a1.stress_cert_result.failures,
+                sTotal: a1.stress_cert_result.total_runs,
+                nEarlyStopped: false,
+                sEarlyStopped: a1.sprt_stopped_early ?? (a1.stress_cert_result.total_runs < 100),
                 summary: `${a1.normal_cert_result.failures}/${fmtN(a1.normal_cert_result.total_runs)} quiet · ${a1.stress_cert_result.failures}/${fmtN(a1.stress_cert_result.total_runs)} stress (${pct(a1.stress_cert_result.failure_rate)})`,
               },
               {
@@ -142,13 +154,19 @@ function Dashboard() {
                 v: "CERTIFIED" as const,
                 n: a2.normal_cert_result.run_dots,
                 s: a2.stress_cert_result.run_dots,
+                nFailures: a2.normal_cert_result.failures,
+                nTotal: a2.normal_cert_result.total_runs,
+                sFailures: a2.stress_cert_result.failures,
+                sTotal: a2.stress_cert_result.total_runs,
+                nEarlyStopped: false,
+                sEarlyStopped: false,
                 summary: `0/${fmtN(a2.normal_cert_result.total_runs)} quiet · 0/${fmtN(a2.stress_cert_result.total_runs)} stress (Upper bound < ${pct(a2.upper_bound_95_stress, 2)})`,
               },
             ].map((x) => (
               <div key={x.t} className="matrix-item space-y-4">
                 <div className="flex items-center justify-between"><h3 className="text-sm font-semibold">{x.t}</h3><Verdict v={x.v} /></div>
-                <Dots dots={x.n} label="Quiet Baseline" />
-                <Dots dots={x.s} label={stressCond.label} />
+                <Dots dots={x.n} label="Quiet Baseline" failures={x.nFailures} totalRuns={x.nTotal} earlyStopped={x.nEarlyStopped} />
+                <Dots dots={x.s} label={stressCond.label} failures={x.sFailures} totalRuns={x.sTotal} earlyStopped={x.sEarlyStopped} />
                 <div className="border-t border-border/80 pt-3 font-mono text-[11px] text-muted-foreground flex justify-between items-center">
                   <span>Summary:</span>
                   <span className="font-semibold text-foreground/90">{x.summary}</span>

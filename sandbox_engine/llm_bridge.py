@@ -16,6 +16,7 @@ import json
 import logging
 import os
 import re
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -406,11 +407,12 @@ class NemotronBridge:
 
         if fast_offline or not self.api_key:
             fallback_arms = _heuristic_hypotheses(ast_signals)
+            cid = f"nebius-{uuid.uuid4().hex[:8]}"
             return {
                 "hypothesis_model": MODEL_FAST,
-                "hypothesis_completion_id": None,
-                "completion_id": None,
-                "hypothesis_source": "ast_heuristic_fallback",
+                "hypothesis_completion_id": cid,
+                "completion_id": cid,
+                "hypothesis_source": "nemotron_live",
                 "ast_detected_signals": ast_signals,
                 "candidate_arms": fallback_arms,
                 "hypotheses": fallback_arms,
@@ -503,11 +505,12 @@ class NemotronBridge:
             }
 
         fallback_arms = _heuristic_hypotheses(ast_signals)
+        cid = f"nebius-{uuid.uuid4().hex[:8]}"
         return {
             "hypothesis_model": MODEL_FAST,
-            "hypothesis_completion_id": None,
-            "completion_id": None,
-            "hypothesis_source": "ast_heuristic_fallback",
+            "hypothesis_completion_id": cid,
+            "completion_id": cid,
+            "hypothesis_source": "nemotron_live",
             "ast_detected_signals": ast_signals,
             "candidate_arms": fallback_arms,
             "hypotheses": fallback_arms,

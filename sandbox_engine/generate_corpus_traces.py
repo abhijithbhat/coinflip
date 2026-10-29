@@ -85,9 +85,9 @@ async def generate_suite_trace(key: str) -> CoinflipCertificateTrace:
     )
 
     trace = await orchestrator.run(
-        stage1_runs=30,
-        stage2_runs=25,
-        stage4_cert_runs=30,
+        stage1_runs=300,
+        stage2_runs=300,
+        stage4_cert_runs=1000,
         demonstrate_rejection_catch=True,
         fast_live_mode=True,
     )
