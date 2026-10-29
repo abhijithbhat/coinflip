@@ -211,12 +211,7 @@ export function Dots({ dots = [], label, failures: propFailures, totalRuns: prop
         </span>
       </div>
       <div
-        className={`dot-matrix ${filter ? "highlight-failures" : ""} grid py-2 min-h-[68px]`}
-        style={{
-          gridTemplateColumns: "repeat(20, minmax(0, 1fr))",
-          columnGap: "0px",
-          rowGap: "2.5px",
-        }}
+        className={`dot-matrix ${filter ? "highlight-failures" : ""} py-1`}
         onMouseLeave={() => setHover(null)}
       >
         {slots.map((slot, i) => {
@@ -230,7 +225,7 @@ export function Dots({ dots = [], label, failures: propFailures, totalRuns: prop
                 onMouseEnter={() => setHover(i)}
                 title={slot.title}
                 aria-label={slot.ariaLabel}
-                className="dot-cell border border-muted-foreground/30 opacity-20 bg-transparent rounded-[1px]"
+                className="dot-cell border border-muted-foreground/30 opacity-25 bg-transparent rounded-[1.5px]"
               />
             );
           }
