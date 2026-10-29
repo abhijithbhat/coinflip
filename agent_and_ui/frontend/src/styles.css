@@ -43,8 +43,8 @@
  --foreground: oklch(0.185404 0.005178 248.1074);
  --muted-foreground: oklch(0.478127 0.011836 267.2600);
  --primary: oklch(0.528199 0.262804 262.8699);
- --stress: oklch(0.669649 0.222046 37.4179);
- --pass: oklch(0.595971 0.127418 163.2254);
+ --stress: oklch(0.72 0.24 45);
+ --pass: oklch(0.80 0.22 145);
  --primary-foreground: oklch(1.000000 0.000000 89.8756);
  --normal: var(--primary);
  --card-foreground: var(--foreground); --popover: var(--card); --popover-foreground: var(--foreground); --secondary: color-mix(in oklab, var(--primary) 8%, var(--card)); --secondary-foreground: var(--foreground); --muted: color-mix(in oklab, var(--foreground) 5%, var(--card)); --accent: color-mix(in oklab, var(--primary) 9%, var(--card)); --accent-foreground: var(--foreground); --destructive: var(--stress); --destructive-foreground: var(--primary-foreground); --fail: var(--stress); --input: var(--border); --ring: var(--primary); --chart-1: var(--primary); --chart-2: var(--stress); --chart-3: var(--pass); --chart-4: var(--normal); --chart-5: var(--fail); --grid-dot: color-mix(in oklab, var(--foreground) 6%, transparent); --shadow-instrument: 0 3px 12px color-mix(in oklab, var(--foreground) 3%, transparent); --shadow-menu: 0 12px 35px color-mix(in oklab, var(--foreground) 12%, transparent); --font-sans: "Inter", system-ui, sans-serif; --font-mono: "JetBrains Mono", ui-monospace, monospace;
@@ -58,8 +58,8 @@
  --foreground: oklch(0.981926 0.018060 155.8263);
  --muted-foreground: oklch(0.657920 0.021752 164.2466);
  --primary: oklch(0.919191 0.229262 127.8240);
- --stress: oklch(0.679175 0.212763 36.5324);
- --pass: oklch(0.772944 0.153490 163.2231);
+ --stress: oklch(0.75 0.24 45);
+ --pass: oklch(0.86 0.24 142);
  --primary-foreground: oklch(0.158886 0.006784 178.5830);
  --normal: oklch(0.714837 0.125737 215.2209);
  --card-foreground: var(--foreground); --popover: var(--card); --popover-foreground: var(--foreground); --secondary: color-mix(in oklab, var(--primary) 8%, var(--card)); --secondary-foreground: var(--foreground); --muted: color-mix(in oklab, var(--foreground) 5%, var(--card)); --accent: color-mix(in oklab, var(--primary) 9%, var(--card)); --accent-foreground: var(--foreground); --destructive: var(--stress); --destructive-foreground: var(--primary-foreground); --fail: var(--stress); --input: var(--border); --ring: var(--primary); --chart-1: var(--primary); --chart-2: var(--stress); --chart-3: var(--pass); --chart-4: var(--normal); --chart-5: var(--fail); --grid-dot: color-mix(in oklab, var(--foreground) 6%, transparent); --shadow-instrument: 0 3px 12px color-mix(in oklab, var(--foreground) 3%, transparent); --shadow-menu: 0 12px 35px color-mix(in oklab, var(--foreground) 12%, transparent); --font-sans: "Inter", system-ui, sans-serif; --font-mono: "JetBrains Mono", ui-monospace, monospace;
@@ -88,8 +88,8 @@
  --foreground: oklch(0.977108 0.012486 236.6197);
  --muted-foreground: oklch(0.710672 0.035114 256.7878);
  --primary: oklch(0.753513 0.138989 232.6615);
- --stress: oklch(0.645032 0.215403 16.4393);
- --pass: oklch(0.695873 0.149074 162.4796);
+ --stress: oklch(0.74 0.24 45);
+ --pass: oklch(0.82 0.22 145);
  --primary-foreground: oklch(0.147984 0.029224 267.9689);
  --normal: var(--primary);
  --card-foreground: var(--foreground); --popover: var(--card); --popover-foreground: var(--foreground); --secondary: color-mix(in oklab, var(--primary) 8%, var(--card)); --secondary-foreground: var(--foreground); --muted: color-mix(in oklab, var(--foreground) 5%, var(--card)); --accent: color-mix(in oklab, var(--primary) 9%, var(--card)); --accent-foreground: var(--foreground); --destructive: var(--stress); --destructive-foreground: var(--primary-foreground); --fail: var(--stress); --input: var(--border); --ring: var(--primary); --chart-1: var(--primary); --chart-2: var(--stress); --chart-3: var(--pass); --chart-4: var(--normal); --chart-5: var(--fail); --grid-dot: color-mix(in oklab, var(--foreground) 6%, transparent); --shadow-instrument: 0 3px 12px color-mix(in oklab, var(--foreground) 3%, transparent); --shadow-menu: 0 12px 35px color-mix(in oklab, var(--foreground) 12%, transparent); --font-sans: "Inter", system-ui, sans-serif; --font-mono: "JetBrains Mono", ui-monospace, monospace;
@@ -173,11 +173,12 @@
 .dot-instrument + .dot-instrument { padding-top: 17px; border-top: 1px solid var(--border); }
 .dot-filter { padding: 2px; }
 .dot-filter button { height: 21px; padding: 0 6px; font-size: 8px; }
-.dot-matrix { display: grid; grid-template-columns: repeat(auto-fill,minmax(6px,1fr)); gap: 3px; }
-.dot-cell { display: block; aspect-ratio: 1; min-width: 0; max-height: 10px; border-radius: 1px; transition: opacity 180ms, transform 150ms; outline-offset: 2px; }
-.dot-pass { background: var(--pass); opacity: .65; } .dot-fail { background: var(--fail); }
-.dot-cell:hover, .dot-cell:focus { transform: scale(1.7); opacity: 1; outline: 1px solid var(--foreground); z-index: 1; }
-.highlight-failures .dot-pass { opacity: .1; }
+.dot-matrix { display: grid; grid-template-columns: repeat(20, minmax(0, 1fr)); column-gap: 0px; row-gap: 2.5px; }
+.dot-cell { display: block; width: 100%; aspect-ratio: 1.1; min-width: 0; max-height: none; border-radius: 1px; box-shadow: inset 0 0 0 0.5px color-mix(in oklab, var(--card) 45%, transparent); transition: opacity 180ms, transform 150ms; outline-offset: 2px; }
+.dot-pass { background: #22c55e; background: var(--pass); opacity: 1; }
+.dot-fail { background: #ff5722; background: var(--fail); opacity: 1; }
+.dot-cell:hover, .dot-cell:focus { transform: scale(1.5); opacity: 1; outline: 1.5px solid var(--foreground); z-index: 10; }
+.highlight-failures .dot-pass { opacity: .15; }
 .dot-readout { min-height: 24px; padding-top: 10px; overflow-wrap: anywhere; }
 .ledger-table-wrap { margin-top: 24px; overflow-x: auto; border: 1px solid var(--border); background: var(--card); }
 .ledger-table { border-collapse: collapse; width: 100%; font-family: var(--font-mono); font-size: 11px; text-align: left; }
@@ -210,10 +211,10 @@
 [data-theme="phantom-ice"] .matrix-item, [data-theme="phantom-ice"] .fix-item, [data-theme="phantom-ice"] .certificate { backdrop-filter: blur(16px); }
 @keyframes pulse { 50% { opacity: .3; } }
 @keyframes scan { to { background-position: 200% 0; } }
-@media (min-width: 1450px) { .dot-matrix { grid-template-columns: repeat(auto-fill,minmax(8px,1fr)); } }
+@media (min-width: 1450px) { }
 @media (max-width: 1100px) { .command-inner { flex-wrap: wrap; padding: 15px 24px; } .lab-main { padding: 0 24px; } .telemetry-strip { justify-content: flex-start; } .lab-hero h1 { font-size: 44px; } .pipeline button { padding: 0 12px; font-size: 12px; } }
 @media (max-width: 640px) {
- .command-bar { position: relative; } .command-inner { padding: 16px; gap: 18px; } .command-inner > div { gap: 8px; } .command-inner > div > .relative { flex-basis: 100%; } .telemetry-strip { padding: 10px 16px; gap: 8px 16px; } .telemetry-strip > span:nth-last-child(-n+2) { flex-basis: 100%; font-size: 8px; } .lab-main { padding: 0 16px; } .lab-hero { padding-top: 28px; } .hero-topline { font-size: 9px; } .hero-topline > span { font-size: 9px; } .lab-hero h1 { font-size: 36px; } .hero-title-row { align-items: flex-start; gap: 14px; } .hero-verdict { padding-left: 12px; } .hero-verdict strong { font-size: 22px; gap: 6px; } .hero-verdict svg { width: 18px; } .hero-verdict > span { font-size: 8px; } .hero-subtitle { font-size: 12px; } .hero-trace { grid-template-columns: 1fr; gap: 13px; } .replay-badge { font-size: 8px; line-height: 1.8; } .pipeline { margin-bottom: 25px; } .pipeline button { height: 65px; padding: 9px 3px; flex-direction: column; gap: 6px; font-size: 9px; } .pipeline svg { display: none; } .lab-panel, .comparison-arena { scroll-margin-top: 20px; } .panel-heading h2 { font-size: 23px; } .matrix-item { padding: 17px; } .dot-matrix { grid-template-columns: repeat(auto-fill,minmax(7px,1fr)); } .certificate { padding: 22px 18px; } .certificate-seal { width: 65px; height: 65px; } .certificate h2 { font-size: 23px; } .fix-item { padding: 17px; } .theme-menu { right: auto; left: 0; } .formula-band p { font-size: 12px; } .certificate button { white-space: normal; height: auto; min-height: 36px; text-align: left; font-size: 11px; }
+ .command-bar { position: relative; } .command-inner { padding: 16px; gap: 18px; } .command-inner > div { gap: 8px; } .command-inner > div > .relative { flex-basis: 100%; } .telemetry-strip { padding: 10px 16px; gap: 8px 16px; } .telemetry-strip > span:nth-last-child(-n+2) { flex-basis: 100%; font-size: 8px; } .lab-main { padding: 0 16px; } .lab-hero { padding-top: 28px; } .hero-topline { font-size: 9px; } .hero-topline > span { font-size: 9px; } .lab-hero h1 { font-size: 36px; } .hero-title-row { align-items: flex-start; gap: 14px; } .hero-verdict { padding-left: 12px; } .hero-verdict strong { font-size: 22px; gap: 6px; } .hero-verdict svg { width: 18px; } .hero-verdict > span { font-size: 8px; } .hero-subtitle { font-size: 12px; } .hero-trace { grid-template-columns: 1fr; gap: 13px; } .replay-badge { font-size: 8px; line-height: 1.8; } .pipeline { margin-bottom: 25px; } .pipeline button { height: 65px; padding: 9px 3px; flex-direction: column; gap: 6px; font-size: 9px; } .pipeline svg { display: none; } .lab-panel, .comparison-arena { scroll-margin-top: 20px; } .panel-heading h2 { font-size: 23px; } .matrix-item { padding: 17px; } .certificate { padding: 22px 18px; } .certificate-seal { width: 65px; height: 65px; } .certificate h2 { font-size: 23px; } .fix-item { padding: 17px; } .theme-menu { right: auto; left: 0; } .formula-band p { font-size: 12px; } .certificate button { white-space: normal; height: auto; min-height: 36px; text-align: left; font-size: 11px; }
 }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; } }
 
